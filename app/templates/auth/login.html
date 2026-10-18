@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import field %}
+{% block title %}Log in · Virtual Interviewer{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-sm-10 col-md-6 col-lg-4">
+    <div class="card shadow-sm"><div class="card-body p-4">
+      <h4 class="mb-4">Log in</h4>
+      <form method="post" novalidate>
+        {{ form.hidden_tag() }}
+        {{ field(form.email) }}
+        {{ field(form.password) }}
+        <div class="form-check mb-3">{{ form.remember(class="form-check-input") }} {{ form.remember.label(class="form-check-label") }}</div>
+        {{ form.submit(class="btn btn-primary w-100") }}
+      </form>
+      <p class="small text-muted mt-3 mb-0">New candidate? <a href="{{ url_for('auth.register') }}">Create an account</a></p>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

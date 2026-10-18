@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Apply · {{ job.title }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('candidate.jobs') }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> All jobs</a>
+<div class="row g-4 mt-1">
+  <div class="col-lg-7">
+    <div class="card shadow-sm"><div class="card-body">
+      <h4>{{ job.title }}</h4>
+      <div class="mb-3">{% for s in job.skill_list %}<span class="badge rounded-pill text-bg-light border fw-normal me-1 mb-1">{{ s }}</span>{% endfor %}</div>
+      <p class="mb-0" style="white-space: pre-line">{{ job.description }}</p>
+    </div></div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card shadow-sm"><div class="card-body">
+      <h5 class="mb-3">Upload your resume</h5>
+      <form method="post" enctype="multipart/form-data" novalidate id="apply-form">
+        {{ form.hidden_tag() }}
+        <div class="mb-3">
+          {{ form.resume.label(class="form-label") }}
+          {{ form.resume(class="form-control" + (" is-invalid" if form.resume.errors else ""), accept=".pdf,.docx") }}
+          {% for e in form.resume.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+        </div>
+        <button type="submit" class="btn btn-primary w-100" id="apply-btn">
+          <span class="spinner-border spinner-border-sm me-2 d-none" id="apply-spin"></span><span id="apply-text">Upload and apply</span>
+        </button>
+      </form>
+      <p class="small text-muted mt-3 mb-0"><i class="bi bi-info-circle me-1"></i>Gemini reads your resume, extracts your skills and experience, and compares them with this role by meaning — not just keywords. This takes about 10 seconds.</p>
+    </div></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+  document.getElementById('apply-form').addEventListener('submit', () => {
+    document.getElementById('apply-btn').disabled = true;
+    document.getElementById('apply-spin').classList.remove('d-none');
+    document.getElementById('apply-text').textContent = 'Analysing your resume…';
+  });
+</script>
+{% endblock %}

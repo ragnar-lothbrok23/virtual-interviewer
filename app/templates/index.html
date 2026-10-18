@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row align-items-center py-5">
+  <div class="col-lg-7">
+    <h1 class="display-5 fw-bold">Fair, consistent first-round interviews</h1>
+    <p class="lead text-muted my-4">Upload your resume, take an AI-led interview by webcam and mic, and get evaluated on what you say and how you say it — with adaptive questions tailored to you.</p>
+    {% if current_user.is_authenticated %}
+      <a href="{{ url_for('main.dashboard') }}" class="btn btn-primary btn-lg">Go to dashboard</a>
+    {% else %}
+      <a href="{{ url_for('auth.register') }}" class="btn btn-primary btn-lg me-2">I'm a candidate</a>
+      <a href="{{ url_for('auth.login') }}" class="btn btn-outline-primary btn-lg">Log in</a>
+    {% endif %}
+  </div>
+  <div class="col-lg-5 mt-5 mt-lg-0">
+    <div class="row g-3">
+      {% for icon, title, text in [
+        ('file-earmark-person', 'Resume matching', 'Semantic match to the job, not keywords'),
+        ('mic', 'Live interview', 'Speech-to-text answers scored by NLP'),
+        ('emoji-smile', 'Emotion insight', 'Confidence and engagement from video'),
+        ('bar-chart', 'HR scorecards', 'Ranked candidates with evidence')] %}
+      <div class="col-6">
+        <div class="card h-100 border-0 shadow-sm"><div class="card-body">
+          <i class="bi bi-{{ icon }} fs-3 text-primary"></i>
+          <h6 class="mt-2 mb-1">{{ title }}</h6><p class="small text-muted mb-0">{{ text }}</p>
+        </div></div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

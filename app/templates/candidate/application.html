@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "_macros.html" import match_summary, profile_card %}
+{% block title %}{{ a.job.title }} · My application{% endblock %}
+{% block content %}
+<a href="{{ url_for('candidate.dashboard') }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> My dashboard</a>
+<div class="row g-4 mt-1">
+  <div class="col-lg-5">
+    {{ match_summary(a) }}
+    <div class="alert alert-{{ 'success' if a.status == 'shortlisted' else 'light border' }} small">
+      {% if a.status == 'shortlisted' %}
+        <i class="bi bi-check-circle me-1"></i>You've been shortlisted. Interview scheduling opens in the next step.
+      {% elif a.status == 'rejected' %}
+        Thank you for applying. The recruiter has decided not to move forward with this application.
+      {% else %}
+        <i class="bi bi-hourglass-split me-1"></i>Your application is with the recruiter for review.
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <h6 class="text-muted mb-2">What we read from your resume <span class="small">({{ a.resume_original_name }})</span></h6>
+    {{ profile_card(a.parsed) }}
+  </div>
+</div>
+{% endblock %}

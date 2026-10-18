@@ -1,0 +1,23 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets and local data
+.env
+instance/
+uploads/
+*.db
+
+# Personal webcam captures
+smoke_test_frame.jpg
+expression_snapshots/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

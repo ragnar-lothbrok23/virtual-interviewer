@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import field %}
+{% block title %}Jobs · Virtual Interviewer{% endblock %}
+{% block content %}
+<h3 class="mb-4">Jobs</h3>
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      {% if jobs %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle">
+          <thead class="table-light"><tr><th>Title</th><th>Applicants</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {% for job in jobs %}
+            <tr>
+              <td><a href="{{ url_for('hr.job_detail', job_id=job.id) }}" class="fw-semibold text-decoration-none">{{ job.title }}</a>
+                  <div class="small text-muted">{{ job.skill_list|join(', ')|truncate(60) }}</div></td>
+              <td>{{ job.applications|length }}</td>
+              <td><span class="badge text-bg-{{ 'success' if job.is_open else 'secondary' }}">{{ 'Open' if job.is_open else 'Closed' }}</span></td>
+              <td class="text-end">
+                <form method="post" action="{{ url_for('hr.toggle_job', job_id=job.id) }}" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-sm btn-outline-secondary">{{ 'Close' if job.is_open else 'Reopen' }}</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body text-muted">No jobs yet. Create one with the form, or run <code>venv\Scripts\flask --app run seed-jobs</code> to add three sample roles.</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card shadow-sm"><div class="card-body">
+      <h5 class="mb-3">Create a job</h5>
+      <form method="post" novalidate>
+        {{ form.hidden_tag() }}
+        {{ field(form.title) }}
+        {{ field(form.skills) }}
+        {{ field(form.description) }}
+        {{ form.submit(class="btn btn-primary w-100") }}
+      </form>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

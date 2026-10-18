@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}HR dashboard · Virtual Interviewer{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+  <div>
+    <h3 class="mb-1">HR dashboard</h3>
+    <p class="text-muted mb-0">Overview of your roles and applicants.</p>
+  </div>
+  <a href="{{ url_for('hr.jobs') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>Manage jobs</a>
+</div>
+
+<div class="row g-3 mb-4">
+  {% for label, value, icon in [('Open jobs', stats.jobs, 'briefcase'), ('Candidates', stats.candidates, 'people'),
+                                ('Applications', stats.applications, 'file-earmark-text'), ('Shortlisted', stats.shortlisted, 'check2-circle')] %}
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm"><div class="card-body">
+      <div class="text-muted small"><i class="bi bi-{{ icon }} me-1"></i>{{ label }}</div>
+      <div class="fs-3 fw-bold">{{ value }}</div>
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-header bg-white fw-semibold">Jobs</div>
+      {% if jobs %}
+      <div class="list-group list-group-flush">
+        {% for job in jobs %}
+        <a href="{{ url_for('hr.job_detail', job_id=job.id) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+          <span>{{ job.title }} {% if not job.is_open %}<span class="badge text-bg-secondary ms-1">Closed</span>{% endif %}</span>
+          <span class="badge text-bg-primary rounded-pill">{{ job.applications|length }} applicant{{ 's' if job.applications|length != 1 }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="card-body text-muted">No jobs yet. <a href="{{ url_for('hr.jobs') }}">Create your first job</a>.</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-header bg-white fw-semibold">Registered candidates <span class="badge text-bg-primary">{{ candidates|length }}</span></div>
+      {% if candidates %}
+      <ul class="list-group list-group-flush">
+        {% for c in candidates %}
+        <li class="list-group-item d-flex justify-content-between"><span>{{ c.name }}<br><span class="small text-muted">{{ c.email }}</span></span><span class="small text-muted">{{ c.created_at.strftime('%d %b') }}</span></li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="card-body text-muted">No candidates have signed up yet.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_macros.html" import match_summary, profile_card %}
+{% block title %}{{ a.candidate.name }} · {{ a.job.title }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('hr.job_detail', job_id=a.job.id) }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> {{ a.job.title }} applicants</a>
+<div class="row g-4 mt-1">
+  <div class="col-lg-5">
+    {{ match_summary(a) }}
+    <div class="card shadow-sm"><div class="card-body">
+      <h6 class="mb-3">Decision</h6>
+      <form method="post" action="{{ url_for('hr.set_status', app_id=a.id) }}" class="d-flex flex-wrap gap-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% for key, label in labels.items() %}
+          <button name="status" value="{{ key }}" class="btn btn-sm {{ 'btn-primary' if a.status == key else 'btn-outline-primary' }}">{{ label }}</button>
+        {% endfor %}
+      </form>
+      <hr>
+      <a href="{{ url_for('hr.resume', app_id=a.id) }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download me-1"></i>Download resume ({{ a.resume_original_name }})</a>
+    </div></div>
+  </div>
+  <div class="col-lg-7">
+    <h6 class="text-muted mb-2">Parsed resume profile (Gemini)</h6>
+    {{ profile_card(a.parsed) }}
+  </div>
+</div>
+{% endblock %}

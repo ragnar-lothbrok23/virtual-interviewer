@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_macros.html" import score_bar, status_badge %}
+{% block title %}My dashboard · Virtual Interviewer{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+  <div>
+    <h3 class="mb-1">Hi, {{ current_user.name }}</h3>
+    <p class="text-muted mb-0">Here's where your applications stand.</p>
+  </div>
+  <a href="{{ url_for('candidate.jobs') }}" class="btn btn-primary"><i class="bi bi-search me-1"></i>Browse jobs</a>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header bg-white fw-semibold">My applications</div>
+  {% if applications %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-light"><tr><th>Job</th><th style="width: 30%">Match score</th><th>Status</th><th>Applied</th><th></th></tr></thead>
+      <tbody>
+        {% for a in applications %}
+        <tr>
+          <td class="fw-semibold">{{ a.job.title }}</td>
+          <td>{{ score_bar(a.match_score) }}</td>
+          <td>{{ status_badge(a) }}</td>
+          <td class="small text-muted">{{ a.created_at.strftime('%d %b %Y') }}</td>
+          <td class="text-end"><a href="{{ url_for('candidate.application', app_id=a.id) }}" class="btn btn-sm btn-outline-primary">View</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-muted">You haven't applied yet. <a href="{{ url_for('candidate.jobs') }}">Browse open jobs</a> to get started.</div>
+  {% endif %}
+</div>
+
+<div class="row g-3">
+  {% for step, icon, title, text, live in [
+    (1, 'file-earmark-arrow-up', 'Upload resume', 'Apply for a role and get your match score', true),
+    (2, 'calendar-event', 'Book a slot', 'Pick an interview time once shortlisted', false),
+    (3, 'camera-video', 'Take the interview', 'Answer questions by webcam and mic', false),
+    (4, 'clipboard-check', 'Results', 'HR reviews your scorecard', false)] %}
+  <div class="col-md-6 col-lg-3">
+    <div class="card h-100 shadow-sm"><div class="card-body">
+      <span class="badge text-bg-{{ 'primary' if live else 'secondary' }} mb-2">Step {{ step }}</span>
+      <h6><i class="bi bi-{{ icon }} me-1 text-primary"></i>{{ title }}</h6>
+      <p class="small text-muted mb-2">{{ text }}</p>
+      {% if not live %}<span class="small text-muted fst-italic">Coming soon</span>{% endif %}
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

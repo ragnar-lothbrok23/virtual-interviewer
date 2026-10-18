@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import field %}
+{% block title %}Sign up · Virtual Interviewer{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-sm-10 col-md-6 col-lg-5">
+    <div class="card shadow-sm"><div class="card-body p-4">
+      <h4 class="mb-1">Create a candidate account</h4>
+      <p class="small text-muted mb-4">Recruiters: ask your admin for an HR account.</p>
+      <form method="post" novalidate>
+        {{ form.hidden_tag() }}
+        {{ field(form.name) }}
+        {{ field(form.email) }}
+        {{ field(form.password) }}
+        {{ field(form.confirm) }}
+        {{ form.submit(class="btn btn-primary w-100") }}
+      </form>
+      <p class="small text-muted mt-3 mb-0">Already have an account? <a href="{{ url_for('auth.login') }}">Log in</a></p>
+    </div></div>
+  </div>
+</div>
+{% endblock %}
