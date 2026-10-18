@@ -119,8 +119,17 @@ class TestingConfig(BaseConfig):
     REDIS_URL = ""
     LOG_LEVEL = "WARNING"
     GEMINI_API_KEY = "test-key-never-used"
-    MAIL_BACKEND = "memory"
     APP_BASE_URL = "http://localhost"
+    # Pin every mail setting so a developer's .env (real Gmail, redirect...) can never leak into tests
+    MAIL_BACKEND = "memory"
+    MAIL_USERNAME = ""
+    MAIL_APP_PASSWORD = ""
+    MAIL_REDIRECT_TO = ""
+    MAIL_SENDER_NAME = "Virtual Interviewer"
+    MAIL_DAILY_LIMIT = 450
+    SHORTLIST_THRESHOLD = 60.0
+    GEMINI_MODEL = "gemini-test-model"
+    GEMINI_EMBED_MODEL = "gemini-test-embedding"
 
 
 class ProductionConfig(BaseConfig):

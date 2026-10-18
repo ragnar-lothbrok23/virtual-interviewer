@@ -52,7 +52,8 @@ def test_production_rejects_short_secret(monkeypatch):
 def test_production_accepts_complete_config(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@h/db")
     _prod(monkeypatch, SECRET_KEY="x" * 64, REDIS_URL="redis://localhost:6379/0", GEMINI_API_KEY="k",
-          APP_BASE_URL="https://interviews.example.com", MAIL_BACKEND="gmail_smtp")
+          APP_BASE_URL="https://interviews.example.com", MAIL_BACKEND="gmail_smtp",
+          MAIL_USERNAME="system@gmail.com", MAIL_APP_PASSWORD="abcdefghijklmnop", MAIL_REDIRECT_TO="")
     ProductionConfig.validate()
 
 
