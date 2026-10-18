@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import pagination %}
+{% block title %}Notifications · Virtual Interviewer{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <h3 class="mb-0">Notifications</h3>
+  {% if unread_notifications %}
+  <form method="post" action="{{ url_for('notifications.mark_all_read') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-check2-all me-1"></i>Mark all as read</button>
+  </form>
+  {% endif %}
+</div>
+<div class="card shadow-sm">
+  {% if page.items %}
+  <div class="list-group list-group-flush">
+    {% for n in page.items %}
+    <a href="{{ url_for('notifications.open_notification', note_id=n.id) }}"
+       class="list-group-item list-group-item-action d-flex gap-3 {{ '' if n.is_read else 'bg-primary-subtle' }}">
+      <i class="bi {{ 'bi-circle' if n.is_read else 'bi-circle-fill text-primary' }} small mt-1"></i>
+      <div class="flex-grow-1">
+        <div class="d-flex justify-content-between gap-2">
+          <span class="{{ '' if n.is_read else 'fw-semibold' }}">{{ n.title }}</span>
+          <span class="small text-muted text-nowrap">{{ n.created_at.strftime('%d %b, %H:%M') }}</span>
+        </div>
+        {% if n.body %}<div class="small text-muted">{{ n.body }}</div>{% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card-body text-muted">You have no notifications yet.</div>
+  {% endif %}
+</div>
+{{ pagination(page, 'notifications.index') }}
+{% endblock %}

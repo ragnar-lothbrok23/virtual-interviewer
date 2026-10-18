@@ -1,0 +1,6 @@
+{% extends "email/_layout.html" %}
+{% block body %}
+<p>This is a test email from {{ app_name }}.</p>
+<p><strong>If you can read this, email delivery is working.</strong></p>
+<p style="font-size:13px;color:#6c757d;">Sent by: {{ sender }}<br>Backend: {{ backend }}</p>
+{% endblock %}

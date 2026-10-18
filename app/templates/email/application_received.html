@@ -1,0 +1,8 @@
+{% extends "email/_layout.html" %}
+{% block body %}
+<p>Hi {{ user.name }},</p>
+<p>Thanks for applying for <strong>{{ application.job.title }}</strong>. Your resume matched <strong>{{ application.match_score|round|int }}/100</strong> against the role.</p>
+<p>{% if shortlisted %}Good news: you've been <strong>shortlisted</strong>. You'll be able to book an interview soon.{% else %}A recruiter will review your application and you'll hear from us soon.{% endif %}</p>
+{% with label="View my application" %}{% include "email/_button.html" %}{% endwith %}
+{% include "email/_preferences.html" %}
+{% endblock %}

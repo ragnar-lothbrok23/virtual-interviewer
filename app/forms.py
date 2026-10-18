@@ -109,6 +109,12 @@ class ChangePasswordForm(FlaskForm):
     submit_password = SubmitField("Change password")
 
 
+class EmailPreferencesForm(FlaskForm):
+    email_applications = BooleanField("Application updates (received, shortlisted, decisions)")
+    email_interviews = BooleanField("Interview scheduling and reminders")
+    submit_prefs = SubmitField("Save email preferences")
+
+
 class DeleteAccountForm(FlaskForm):
     current_password = PasswordField("Current password", validators=[DataRequired(), Length(max=MAX_PASSWORD_LENGTH)])
     confirm_text = StringField('Type DELETE to confirm', validators=[DataRequired()])

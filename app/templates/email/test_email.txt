@@ -1,0 +1,5 @@
+This is a test email from {{ app_name }}.
+
+If you can read this, email delivery is working.
+Sent by: {{ sender }}
+Backend: {{ backend }}

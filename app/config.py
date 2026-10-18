@@ -73,12 +73,21 @@ class BaseConfig:
     APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:5000").rstrip("/")
     APP_NAME = "Virtual Interviewer"
 
-    # Email. "console" logs messages and saves them to instance/outbox (development); Gmail backends come in Phase 3.
-    MAIL_BACKEND = os.getenv("MAIL_BACKEND", "console")
+    # Email backends: "gmail_smtp" sends through Gmail with an app password; "console" logs messages and saves
+    # them to instance/outbox (development); "memory" keeps them in a list (tests).
+    MAIL_BACKEND = os.getenv("MAIL_BACKEND", "console").strip().lower()
     MAIL_OUTBOX_DIR = INSTANCE_DIR / "outbox"
-    MAIL_USERNAME = os.getenv("MAIL_USERNAME", "")
-    MAIL_APP_PASSWORD = os.getenv("MAIL_APP_PASSWORD", "")
+    MAIL_USERNAME = os.getenv("MAIL_USERNAME", "").strip()
+    MAIL_APP_PASSWORD = os.getenv("MAIL_APP_PASSWORD", "").replace(" ", "")  # Google shows it as "abcd efgh ijkl mnop"
     MAIL_SENDER_NAME = os.getenv("MAIL_SENDER_NAME", "Virtual Interviewer")
+    MAIL_SMTP_HOST = os.getenv("MAIL_SMTP_HOST", "smtp.gmail.com")
+    MAIL_SMTP_PORT = int(os.getenv("MAIL_SMTP_PORT", "465"))  # implicit TLS
+    MAIL_SMTP_TIMEOUT = 20  # seconds
+    MAIL_DAILY_LIMIT = int(os.getenv("MAIL_DAILY_LIMIT", "450"))  # stay under Gmail's ~500/day; extra mail is deferred
+    MAIL_DEFER_SECONDS = 3600  # how long to wait before retrying mail deferred by the daily limit
+    # Development safety net: deliver EVERY email to this one address instead of the real recipient
+    # (the intended recipient is shown in the subject). Not allowed in production.
+    MAIL_REDIRECT_TO = os.getenv("MAIL_REDIRECT_TO", "").strip()
 
     # Accounts
     EMAIL_VERIFY_MAX_AGE = 48 * 3600      # seconds a verification link stays valid
@@ -135,7 +144,11 @@ class ProductionConfig(BaseConfig):
         if not cls.APP_BASE_URL.startswith("https://"):
             problems.append("APP_BASE_URL must be the public https:// address of the site")
         if cls.MAIL_BACKEND in ("console", "memory"):
-            problems.append("MAIL_BACKEND must be a real email backend in production (Gmail)")
+            problems.append("MAIL_BACKEND must be a real email backend in production (gmail_smtp)")
+        if cls.MAIL_BACKEND == "gmail_smtp" and not (cls.MAIL_USERNAME and cls.MAIL_APP_PASSWORD):
+            problems.append("MAIL_USERNAME and MAIL_APP_PASSWORD must be set for gmail_smtp")
+        if cls.MAIL_REDIRECT_TO:
+            problems.append("MAIL_REDIRECT_TO must be empty in production (it would hide every real email)")
         if problems:
             raise RuntimeError("Invalid production configuration:\n  - " + "\n  - ".join(problems))
 

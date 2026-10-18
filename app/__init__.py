@@ -63,6 +63,7 @@ def create_app(config_class=None):
     from .candidate import bp as candidate_bp
     from .hr import bp as hr_bp
     from .main import bp as main_bp
+    from .notifications import bp as notifications_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
@@ -70,6 +71,7 @@ def create_app(config_class=None):
     app.register_blueprint(hr_bp)
     app.register_blueprint(account_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(notifications_bp)
 
     register_cli(app)
     app.logger.info("App started (env=%s, db=%s)", config_class.ENV_NAME, db_kind(app))
@@ -144,6 +146,29 @@ def register_cli(app):
                 added += 1
         db.session.commit()
         click.echo(f"Added {added} sample job(s).")
+
+    @app.cli.command("mail-test")
+    @click.option("--to", "to", required=True, help="Address to send the test email to.")
+    def mail_test(to):
+        """Send a test email right now (bypassing the queue) and report exactly what happened."""
+        from .models import EmailLog, utcnow
+        from .services.mail import build_message, deliver
+
+        backend = app.config["MAIL_BACKEND"]
+        message = build_message(to.strip(), f"Test email from {app.config['APP_NAME']}", "test_email",
+                                sender=app.config["MAIL_USERNAME"] or "(not set)", backend=backend)
+        log = EmailLog(to_address=message["to"], subject=message["subject"], template="test_email",
+                       message_id=message["message_id"], backend=backend, attempts=1)
+        db.session.add(log)
+        try:
+            deliver(message)
+        except Exception as e:
+            log.status, log.last_error = EmailLog.STATUS_FAILED, str(e)[:2000]
+            db.session.commit()
+            raise click.ClickException(f"Sending failed ({backend}): {e}")
+        log.status, log.sent_at = EmailLog.STATUS_SENT, utcnow()
+        db.session.commit()
+        click.echo(f"Test email sent to {message['to']} via {backend}.")
 
     @app.cli.command("queue-check")
     @click.option("--timeout", default=15, help="Seconds to wait for the worker.")

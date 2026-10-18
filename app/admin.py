@@ -1,15 +1,16 @@
 """Admin panel: user management and the audit log."""
 import secrets
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user
 from sqlalchemy import or_
 
 from .extensions import db
 from .forms import InviteStaffForm, normalise_email
 from .main import role_required
-from .models import AuditLog, User
+from .models import AuditLog, EmailLog, User
 from .services.accounts import delete_user_account, send_invitation_email
+from .services.mail import sent_in_last_24h
 from .services.security import audit
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -196,6 +197,25 @@ def delete(user_id):
     delete_user_account(user, actor=current_user._get_current_object(), reason="deleted by admin")
     flash(f"{email} and all their data have been permanently deleted.", "success")
     return redirect(url_for("admin.users"))
+
+
+# ---------- email log ----------
+
+@bp.route("/emails")
+@admin_only
+def emails():
+    status = request.args.get("status", "")
+    to = request.args.get("to", "").strip().lower()
+    query = EmailLog.query
+    if status in EmailLog.STATUS_COLORS:
+        query = query.filter(EmailLog.status == status)
+    if to:
+        query = query.filter(EmailLog.to_address.contains(to, autoescape=True))
+    page = query.order_by(EmailLog.created_at.desc(), EmailLog.id.desc()).paginate(per_page=50, error_out=False)
+    stats = {s: EmailLog.query.filter_by(status=s).count() for s in EmailLog.STATUS_COLORS}
+    return render_template("admin/emails.html", page=page, status=status, to=to, stats=stats,
+                           statuses=list(EmailLog.STATUS_COLORS), sent_24h=sent_in_last_24h(),
+                           daily_limit=current_app.config["MAIL_DAILY_LIMIT"], backend=current_app.config["MAIL_BACKEND"])
 
 
 # ---------- audit log ----------

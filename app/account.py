@@ -5,7 +5,8 @@ from flask import (Blueprint, after_this_request, current_app, flash, redirect, 
 from flask_login import current_user, login_required, login_user, logout_user
 
 from .extensions import db, limiter
-from .forms import ChangeEmailForm, ChangePasswordForm, DeleteAccountForm, ProfileForm, email_is_taken, normalise_email
+from .forms import (ChangeEmailForm, ChangePasswordForm, DeleteAccountForm, EmailPreferencesForm, ProfileForm,
+                    email_is_taken, normalise_email)
 from .models import User
 from .services.accounts import (delete_user_account, export_user_data, send_email_change_confirmation,
                                 send_password_changed_notice)
@@ -23,9 +24,17 @@ def _forms():
     return profile, email, password, delete
 
 
-def _render(profile, email, password, delete):
+def _prefs_form():
+    return EmailPreferencesForm(prefix="prefs", data={
+        "email_applications": current_user.wants_email("applications"),
+        "email_interviews": current_user.wants_email("interviews"),
+    })
+
+
+def _render(profile, email, password, delete, prefs=None):
     return render_template("account/settings.html", profile_form=profile, email_form=email,
-                           password_form=password, delete_form=delete, can_delete=_can_self_delete())
+                           password_form=password, delete_form=delete, prefs_form=prefs or _prefs_form(),
+                           can_delete=_can_self_delete())
 
 
 def _can_self_delete():
@@ -53,6 +62,20 @@ def update_profile():
         flash("Your name has been updated.", "success")
         return redirect(url_for("account.settings"))
     return _render(profile, email, password, delete)
+
+
+@bp.post("/preferences")
+@login_required
+def update_preferences():
+    form = EmailPreferencesForm(prefix="prefs")
+    if form.validate_on_submit():
+        current_user.set_email_preferences(applications=form.email_applications.data,
+                                           interviews=form.email_interviews.data)
+        audit("preferences.updated", target=current_user, email_applications=form.email_applications.data,
+              email_interviews=form.email_interviews.data)
+        db.session.commit()
+        flash("Your email preferences have been saved.", "success")
+    return redirect(url_for("account.settings"))
 
 
 @bp.post("/email")

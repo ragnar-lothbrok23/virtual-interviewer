@@ -10,6 +10,7 @@ from .forms import ApplyForm
 from .main import role_required
 from .models import Application, Job, User
 from .services.gemini import GeminiError
+from .services.notifications import notify_application_received
 from .services.resume import ResumeError, analyse, extract_text, initial_status
 
 bp = Blueprint("candidate", __name__, url_prefix="/candidate")
@@ -67,6 +68,7 @@ def apply(job_id):
                               status=initial_status(score))
         db.session.add(app_row)
         db.session.commit()
+        notify_application_received(app_row)
         flash("Your resume was analysed and your application submitted.", "success")
         return redirect(url_for("candidate.application", app_id=app_row.id))
     return render_template("candidate/apply.html", job=job, form=form)

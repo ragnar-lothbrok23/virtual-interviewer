@@ -47,6 +47,7 @@ class User(UserMixin, db.Model):
     password_changed_at = db.Column(db.DateTime(timezone=True))
     consent_version = db.Column(db.String(20))  # privacy policy version the user accepted
     consent_at = db.Column(db.DateTime(timezone=True))
+    notification_prefs = db.Column(db.JSON)  # {"email_applications": bool, "email_interviews": bool}; missing = on
 
     applications = db.relationship("Application", back_populates="candidate", cascade="all, delete-orphan")
 
@@ -128,6 +129,24 @@ class User(UserMixin, db.Model):
     def role_label(self):
         return self.ROLE_LABELS.get(self.role, self.role)
 
+    # --- notification preferences ---
+
+    # Categories a user may switch off. Security emails (password reset, password changed...) are always sent.
+    EMAIL_CATEGORIES = {"applications": "Application updates (received, shortlisted, decisions)",
+                        "interviews": "Interview scheduling and reminders"}
+
+    def wants_email(self, category):
+        if category not in self.EMAIL_CATEGORIES:
+            return True
+        return (self.notification_prefs or {}).get(f"email_{category}", True)
+
+    def set_email_preferences(self, **enabled):
+        prefs = dict(self.notification_prefs or {})
+        for category, value in enabled.items():
+            if category in self.EMAIL_CATEGORIES:
+                prefs[f"email_{category}"] = bool(value)
+        self.notification_prefs = prefs  # reassign so SQLAlchemy sees the JSON change
+
     def has_current_consent(self, version):
         return self.consent_version == version
 
@@ -204,6 +223,55 @@ class Application(db.Model):
     @property
     def status_color(self):
         return self.STATUS_COLORS.get(self.status, "light")
+
+
+class EmailLog(db.Model):
+    """One row per outgoing email, so delivery problems are visible to admins. Bodies are not stored
+    (they contain single-use login links)."""
+
+    STATUS_QUEUED = "queued"
+    STATUS_SENT = "sent"
+    STATUS_RETRYING = "retrying"
+    STATUS_DEFERRED = "deferred"  # held back by the daily sending limit
+    STATUS_FAILED = "failed"
+    STATUS_COLORS = {STATUS_QUEUED: "secondary", STATUS_SENT: "success", STATUS_RETRYING: "warning",
+                     STATUS_DEFERRED: "info", STATUS_FAILED: "danger"}
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    to_address = db.Column(db.String(255), nullable=False, index=True)
+    subject = db.Column(db.String(255), nullable=False)
+    template = db.Column(db.String(64), nullable=False)
+    status = db.Column(db.String(16), nullable=False, default=STATUS_QUEUED, index=True)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    backend = db.Column(db.String(32))
+    message_id = db.Column(db.String(255))
+    last_error = db.Column(db.Text)
+    sent_at = db.Column(db.DateTime(timezone=True), index=True)
+
+    @property
+    def status_color(self):
+        return self.STATUS_COLORS.get(self.status, "light")
+
+
+class Notification(db.Model):
+    """In-app notification shown under the bell icon."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    kind = db.Column(db.String(40), nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    body = db.Column(db.Text, nullable=False, default="")
+    link = db.Column(db.String(500))  # local path only, e.g. /candidate/applications/3
+    read_at = db.Column(db.DateTime(timezone=True))
+
+    user = db.relationship("User", backref=db.backref("notifications", cascade="all, delete-orphan", lazy="dynamic"))
+
+    @property
+    def is_read(self):
+        return self.read_at is not None
 
 
 @login_manager.user_loader

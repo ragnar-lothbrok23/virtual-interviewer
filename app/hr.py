@@ -4,6 +4,8 @@ from .extensions import db
 from .forms import JobForm
 from .main import role_required
 from .models import Application, Job, User
+from .services.notifications import notify_application_status
+from .services.security import audit
 
 bp = Blueprint("hr", __name__, url_prefix="/hr")
 hr_only = role_required(User.ROLE_HR, User.ROLE_ADMIN)
@@ -79,8 +81,13 @@ def set_status(app_id):
     status = request.form.get("status")
     if status not in Application.STATUS_LABELS:
         abort(400)
+    old_status = app_row.status
     app_row.status = status
+    if status != old_status:
+        audit("application.status_changed", target=app_row.candidate, application_id=app_row.id,
+              job=app_row.job.title, old_status=old_status, new_status=status)
     db.session.commit()
+    notify_application_status(app_row, old_status)
     flash(f"{app_row.candidate.name} marked as {app_row.status_label.lower()}.", "success")
     return redirect(request.referrer or url_for("hr.application", app_id=app_row.id))
 

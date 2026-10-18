@@ -1,0 +1,11 @@
+{% extends "email/_layout.html" %}
+{% block body %}
+<p>Hi {{ user.name }},</p>
+{% if application.status == 'shortlisted' %}
+<p>Good news! You've been <strong>shortlisted</strong> for <strong>{{ application.job.title }}</strong>. You'll be able to book an interview soon.</p>
+{% else %}
+<p>Thank you for your interest in <strong>{{ application.job.title }}</strong>. After careful review, the recruiter has decided not to move forward with your application at this time. We wish you the best in your search.</p>
+{% endif %}
+{% with label="View my application" %}{% include "email/_button.html" %}{% endwith %}
+{% include "email/_preferences.html" %}
+{% endblock %}

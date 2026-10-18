@@ -7,7 +7,7 @@ from pathlib import Path
 from flask import current_app
 
 from ..extensions import db
-from ..models import AuditLog
+from ..models import AuditLog, EmailLog
 from .mail import external_url, send_email
 from .security import audit, make_token
 
@@ -41,7 +41,7 @@ def send_invitation_email(user, inviter):
     user, inviter = _real(user), _real(inviter)
     token = make_token(user, "invite")
     send_email(user.email, f"You've been invited to {current_app.config['APP_NAME']}", "invite",
-               user=user, inviter=inviter, link=external_url("auth.accept_invite", token=token),
+               reply_to=inviter.email, user=user, inviter=inviter, link=external_url("auth.accept_invite", token=token),
                days=current_app.config["INVITE_MAX_AGE"] // 86400)
 
 
@@ -102,6 +102,7 @@ def delete_user_account(user, actor=None, reason="self-service"):
     # Keep audit entries (they store the email) but drop the link to the deleted row
     AuditLog.query.filter(AuditLog.actor_id == user.id).update({"actor_id": None}, synchronize_session=False)
     AuditLog.query.filter(AuditLog.target_user_id == user.id).update({"target_user_id": None}, synchronize_session=False)
+    EmailLog.query.filter(EmailLog.user_id == user.id).update({"user_id": None}, synchronize_session=False)
     db.session.flush()
     db.session.delete(user)
     db.session.commit()

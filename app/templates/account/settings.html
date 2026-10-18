@@ -56,6 +56,18 @@
 
   <div class="col-lg-5">
     <div class="card shadow-sm mb-4"><div class="card-body">
+      <h5 class="mb-2">Email notifications</h5>
+      <p class="small text-muted">Security emails (password resets, password changes, email changes) are always sent.</p>
+      <form method="post" action="{{ url_for('account.update_preferences') }}">
+        {{ prefs_form.hidden_tag() }}
+        {% for f in [prefs_form.email_applications, prefs_form.email_interviews] %}
+          <div class="form-check form-switch mb-2">{{ f(class="form-check-input", role="switch") }} {{ f.label(class="form-check-label small") }}</div>
+        {% endfor %}
+        {{ prefs_form.submit_prefs(class="btn btn-sm btn-outline-primary mt-1") }}
+      </form>
+    </div></div>
+
+    <div class="card shadow-sm mb-4"><div class="card-body">
       <h5 class="mb-2">Download my data</h5>
       <p class="small text-muted">A ZIP file with your account details, applications, AI analysis results and the resumes you uploaded.</p>
       <form method="post" action="{{ url_for('account.export_data') }}">

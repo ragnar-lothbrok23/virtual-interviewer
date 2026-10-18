@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import pagination %}
+{% block title %}Emails · Admin{% endblock %}
+{% block content %}
+<h3 class="mb-1">Emails</h3>
+<p class="text-muted small">
+  Every email the system sends. Backend: <code>{{ backend }}</code> ·
+  sent in the last 24 hours: <strong>{{ sent_24h }}</strong>{% if backend == 'gmail_smtp' %} of {{ daily_limit }} allowed{% endif %}.
+  Message contents are not stored because they contain one-time login links.
+</p>
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <a href="{{ url_for('admin.emails') }}" class="btn btn-sm {{ 'btn-primary' if not status else 'btn-outline-primary' }}">All</a>
+  {% for s in statuses %}
+    <a href="{{ url_for('admin.emails', status=s, to=to) }}" class="btn btn-sm {{ 'btn-primary' if status == s else 'btn-outline-primary' }}">
+      {{ s|capitalize }} <span class="badge text-bg-{{ 'light' if status == s else 'secondary' }}">{{ stats[s] }}</span></a>
+  {% endfor %}
+  <form class="ms-auto d-flex gap-2" method="get">
+    <input type="hidden" name="status" value="{{ status }}">
+    <input type="search" name="to" value="{{ to }}" class="form-control form-control-sm" placeholder="Recipient">
+    <button class="btn btn-sm btn-outline-secondary">Search</button>
+  </form>
+</div>
+
+<div class="card shadow-sm">
+  {% if page.items %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle small">
+      <thead class="table-light"><tr><th>Queued (UTC)</th><th>To</th><th>Subject</th><th>Status</th><th>Attempts</th><th>Sent</th><th>Error</th></tr></thead>
+      <tbody>
+        {% for e in page.items %}
+        <tr>
+          <td class="text-nowrap text-muted">{{ e.created_at.strftime('%d %b %H:%M:%S') }}</td>
+          <td>{{ e.to_address }}</td>
+          <td>{{ e.subject }}</td>
+          <td><span class="badge text-bg-{{ e.status_color }}">{{ e.status }}</span></td>
+          <td>{{ e.attempts }}</td>
+          <td class="text-nowrap text-muted">{{ e.sent_at.strftime('%d %b %H:%M:%S') if e.sent_at else '—' }}</td>
+          <td class="text-danger" style="max-width: 22rem">{{ e.last_error or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-muted">No emails match.</div>
+  {% endif %}
+</div>
+{{ pagination(page, 'admin.emails', status=status, to=to) }}
+{% endblock %}

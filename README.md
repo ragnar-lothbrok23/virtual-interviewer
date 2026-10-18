@@ -21,8 +21,18 @@ venv\Scripts\flask --app run create-admin    # first admin; invite HR users from
 venv\Scripts\flask --app run seed-jobs       # optional: three sample job roles
 ```
 
-In development, emails (verification, password reset, invitations) are not sent: the worker prints them
-in its terminal and saves them as `.eml` files in `instance/outbox/`, so you can open the links.
+### Email
+
+Emails are sent by the background worker, so it must be running.
+
+- `MAIL_BACKEND=console` (default): nothing is sent; the worker prints each email and saves it as an `.eml`
+  file in `instance/outbox/`.
+- `MAIL_BACKEND=gmail_smtp`: real sending through the Gmail account in `MAIL_USERNAME` with its app password.
+  In development, also set `MAIL_REDIRECT_TO` to your own inbox so test accounts (e.g. `@test.com`) never
+  email strangers; the intended recipient appears in the subject.
+
+Check delivery with `venv\Scripts\flask --app run mail-test --to you@example.com`. Admins can see every
+email's status (sent, retrying, deferred, failed) under **Admin → Emails**.
 
 Run the app and the background worker in two terminals:
 
@@ -83,13 +93,15 @@ app/
   config.py        per-environment settings
   extensions.py    db, migrations, login, CSRF, rate limiter, security headers
   tasks.py         background jobs (Huey)
-  models.py        User, AuditLog, Job, Application
+  models.py        User, AuditLog, EmailLog, Notification, Job, Application
   auth.py          sign up, log in/out, email verification, password reset, invitations, consent
   account.py       profile, email and password changes, data export, account deletion
-  admin.py         user management and audit log
+  admin.py         user management, email log and audit log
+  notifications.py in-app notifications (bell icon)
   candidate.py     job browsing, resume upload, results
   hr.py            job management, applicant ranking and review
-  services/        Gemini, resume matching, mail, tokens/password policy/audit, account operations
+  services/        Gemini, resume matching, mail (Gmail SMTP), notifications, tokens/password policy/audit,
+                   account operations
   templates/       Jinja2 + Bootstrap pages
 migrations/        Alembic migration scripts
 tests/             pytest suite

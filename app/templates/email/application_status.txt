@@ -1,0 +1,6 @@
+Hi {{ user.name }},
+
+{% if application.status == 'shortlisted' %}Good news! You've been shortlisted for {{ application.job.title }}. You'll be able to book an interview soon.{% else %}Thank you for your interest in {{ application.job.title }}. After careful review, the recruiter has decided not to move forward with your application at this time. We wish you the best in your search.{% endif %}
+
+View your application: {{ link }}
+{% include "email/_preferences.txt" %}

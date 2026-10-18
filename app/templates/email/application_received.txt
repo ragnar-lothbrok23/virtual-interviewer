@@ -1,0 +1,8 @@
+Hi {{ user.name }},
+
+Thanks for applying for {{ application.job.title }}. Your resume matched {{ application.match_score|round|int }}/100 against the role.
+
+{% if shortlisted %}Good news: you've been shortlisted. You'll be able to book an interview soon.{% else %}A recruiter will review your application and you'll hear from us soon.{% endif %}
+
+View your application: {{ link }}
+{% include "email/_preferences.txt" %}

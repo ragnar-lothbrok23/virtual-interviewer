@@ -1,0 +1,4 @@
+{% if preferences_link %}
+---
+You can choose which update emails you receive: {{ preferences_link }}
+{% endif %}

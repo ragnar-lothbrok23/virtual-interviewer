@@ -18,6 +18,7 @@
           {% if current_user.is_authenticated %}
             {% if current_user.is_admin %}
               <li class="nav-item"><a class="nav-link" href="{{ url_for('admin.users') }}">Users</a></li>
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('admin.emails') }}">Emails</a></li>
               <li class="nav-item"><a class="nav-link" href="{{ url_for('admin.audit_log') }}">Audit log</a></li>
             {% endif %}
             {% if current_user.is_hr %}
@@ -27,6 +28,27 @@
               <li class="nav-item"><a class="nav-link" href="{{ url_for('candidate.dashboard') }}">Dashboard</a></li>
               <li class="nav-item"><a class="nav-link" href="{{ url_for('candidate.jobs') }}">Browse jobs</a></li>
             {% endif %}
+            <li class="nav-item dropdown ms-md-2">
+              <a class="nav-link position-relative" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false"
+                 aria-label="Notifications{{ ' (' ~ unread_notifications ~ ' unread)' if unread_notifications }}">
+                <i class="bi bi-bell fs-5"></i>
+                {% if unread_notifications %}
+                  <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size:.65rem">{{ unread_notifications if unread_notifications < 100 else '99+' }}</span>
+                {% endif %}
+              </a>
+              <div class="dropdown-menu dropdown-menu-end p-0 shadow" style="width: 22rem; max-width: 90vw;">
+                <div class="px-3 py-2 border-bottom fw-semibold small">Notifications</div>
+                {% for n in latest_notifications %}
+                  <a class="dropdown-item py-2 text-wrap {{ '' if n.is_read else 'bg-primary-subtle' }}" href="{{ url_for('notifications.open_notification', note_id=n.id) }}">
+                    <div class="small {{ '' if n.is_read else 'fw-semibold' }}">{{ n.title }}</div>
+                    <div class="text-muted" style="font-size:.75rem">{{ n.created_at.strftime('%d %b, %H:%M') }}</div>
+                  </a>
+                {% else %}
+                  <div class="px-3 py-3 small text-muted">No notifications yet.</div>
+                {% endfor %}
+                <a class="dropdown-item small text-center border-top py-2" href="{{ url_for('notifications.index') }}">See all</a>
+              </div>
+            </li>
             <li class="nav-item dropdown ms-md-2">
               <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                 {{ current_user.name }} <span class="badge text-bg-light ms-1">{{ current_user.role_label }}</span>
