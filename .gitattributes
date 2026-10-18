@@ -1,0 +1,13 @@
+# Store text with LF in the repo; check out with the platform default
+* text=auto
+
+# Scripts run inside Linux containers must keep LF endings
+*.sh text eol=lf
+Dockerfile text eol=lf
+
+# Binary files: never touch line endings or try to diff
+*.docx binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.db binary
