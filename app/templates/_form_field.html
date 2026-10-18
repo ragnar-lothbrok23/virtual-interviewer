@@ -1,7 +1,38 @@
-{% macro field(f, type=None) %}
+{% macro field(f, help=None) %}
 <div class="mb-3">
   {{ f.label(class="form-label") }}
   {{ f(class="form-control" + (" is-invalid" if f.errors else "")) }}
+  {% if help %}<div class="form-text">{{ help }}</div>{% endif %}
   {% for e in f.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
 </div>
+{% endmacro %}
+
+{% macro checkbox(f, label_html) %}
+<div class="form-check mb-3">
+  {{ f(class="form-check-input" + (" is-invalid" if f.errors else "")) }}
+  <label class="form-check-label" for="{{ f.id }}">{{ label_html }}</label>
+  {% for e in f.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+</div>
+{% endmacro %}
+
+{% macro pagination(page, endpoint) %}
+{% if page.pages > 1 %}
+<nav aria-label="Pagination" class="mt-3">
+  <ul class="pagination pagination-sm justify-content-center mb-0">
+    <li class="page-item {{ 'disabled' if not page.has_prev }}">
+      <a class="page-link" href="{{ url_for(endpoint, page=page.prev_num, **kwargs) if page.has_prev else '#' }}">Previous</a>
+    </li>
+    {% for n in page.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if n %}
+        <li class="page-item {{ 'active' if n == page.page }}"><a class="page-link" href="{{ url_for(endpoint, page=n, **kwargs) }}">{{ n }}</a></li>
+      {% else %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {{ 'disabled' if not page.has_next }}">
+      <a class="page-link" href="{{ url_for(endpoint, page=page.next_num, **kwargs) if page.has_next else '#' }}">Next</a>
+    </li>
+  </ul>
+</nav>
+{% endif %}
 {% endmacro %}

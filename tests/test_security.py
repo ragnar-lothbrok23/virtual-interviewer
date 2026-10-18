@@ -11,7 +11,7 @@ def test_security_headers_present(app):
 
 def test_session_cookie_is_httponly_and_samesite(app, make_user):
     make_user("a@test.com")
-    response = app.test_client().post("/login", data={"email": "a@test.com", "password": "password123"})
+    response = app.test_client().post("/login", data={"email": "a@test.com", "password": "Correct-Horse-42"})
     cookie = response.headers.get("Set-Cookie", "")
     assert "HttpOnly" in cookie and "SameSite=Lax" in cookie
 
@@ -19,7 +19,7 @@ def test_session_cookie_is_httponly_and_samesite(app, make_user):
 def test_csrf_is_enforced_when_enabled(app, make_user):
     make_user("a@test.com")
     app.config["WTF_CSRF_ENABLED"] = True
-    response = app.test_client().post("/login", data={"email": "a@test.com", "password": "password123"})
+    response = app.test_client().post("/login", data={"email": "a@test.com", "password": "Correct-Horse-42"})
     assert response.status_code == 400
     assert b"form expired" in response.data
 
@@ -100,3 +100,10 @@ def test_trust_proxy_uses_forwarded_client_ip():
 
     body = fresh.test_client().get("/_ip", headers={"X-Forwarded-For": "203.0.113.7", "X-Forwarded-Proto": "https"}).data
     assert body == b"203.0.113.7|https"
+
+
+def test_legal_pages_are_public(app):
+    client = app.test_client()
+    for path in ("/privacy", "/terms"):
+        response = client.get(path)
+        assert response.status_code == 200 and app.config["PRIVACY_POLICY_VERSION"].encode() in response.data

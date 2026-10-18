@@ -1,0 +1,7 @@
+{% extends "email/_layout.html" %}
+{% block body %}
+<p>Hi {{ user.name }},</p>
+<p>Please confirm your email address for {{ app_name }}.</p>
+{% with label="Confirm my email" %}{% include "email/_button.html" %}{% endwith %}
+<p>The link expires in {{ hours }} hours. If you didn't create an account, you can ignore this email.</p>
+{% endblock %}

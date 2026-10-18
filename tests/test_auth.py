@@ -1,9 +1,10 @@
 from app.extensions import db
 from app.models import User
+from tests.conftest import PASSWORD
 
 
 def register(client, **overrides):
-    data = {"name": "Asha", "email": "Asha@Test.com", "password": "secret123", "confirm": "secret123", **overrides}
+    data = {"name": "Asha", "email": "Asha@Test.com", "password": PASSWORD, "confirm": PASSWORD, "consent": "y", **overrides}
     return client.post("/register", data=data, follow_redirects=True)
 
 
@@ -18,7 +19,8 @@ def test_candidate_signup_lands_on_dashboard(app):
         user = User.query.one()
         assert user.email == "asha@test.com"  # stored lower-case
         assert user.role == User.ROLE_CANDIDATE
-        assert user.password_hash.startswith(("scrypt", "pbkdf2")) and "secret123" not in user.password_hash
+        assert user.password_hash.startswith(("scrypt", "pbkdf2")) and PASSWORD not in user.password_hash
+        assert not user.is_verified and user.consent_version == app.config["PRIVACY_POLICY_VERSION"]
 
 
 def test_signup_rejects_duplicate_email_case_insensitively(app, make_user):
@@ -30,7 +32,7 @@ def test_signup_rejects_duplicate_email_case_insensitively(app, make_user):
 def test_signup_validation_errors(app):
     client = app.test_client()
     assert b"at least 8" in register(client, password="short", confirm="short").data
-    assert b"Passwords must match" in register(client, confirm="different1").data
+    assert b"Passwords must match" in register(client, confirm="Different-Pass-9").data
     assert b"Invalid email" in register(client, email="not-an-email").data
     with app.app_context():
         assert User.query.count() == 0
@@ -40,23 +42,27 @@ def test_login_success_and_failure(app, make_user):
     make_user("a@test.com")
     client = app.test_client()
     assert b"Invalid email or password" in client.post("/login", data={"email": "a@test.com", "password": "wrong-pass"}).data
-    assert b"Invalid email or password" in client.post("/login", data={"email": "nobody@test.com", "password": "password123"}).data
-    response = client.post("/login", data={"email": "A@TEST.COM", "password": "password123"})
+    assert b"Invalid email or password" in client.post("/login", data={"email": "nobody@test.com", "password": PASSWORD}).data
+    response = client.post("/login", data={"email": "A@TEST.COM", "password": PASSWORD})
     assert response.status_code == 302 and response.headers["Location"].endswith("/dashboard")
 
 
 def test_login_next_parameter_only_allows_local_redirects(app, make_user):
     make_user("a@test.com")
     client = app.test_client()
-    evil = client.post("/login?next=https://evil.example/phish", data={"email": "a@test.com", "password": "password123"})
+    evil = client.post("/login?next=https://evil.example/phish", data={"email": "a@test.com", "password": PASSWORD})
     assert "evil.example" not in evil.headers["Location"]
-    client.get("/logout")
-    local = client.post("/login?next=/candidate/jobs", data={"email": "a@test.com", "password": "password123"})
+    client.post("/logout")
+    sneaky = client.post("/login?next=//evil.example", data={"email": "a@test.com", "password": PASSWORD})
+    assert "evil.example" not in sneaky.headers["Location"]
+    client.post("/logout")
+    local = client.post("/login?next=/candidate/jobs", data={"email": "a@test.com", "password": PASSWORD})
     assert local.headers["Location"].endswith("/candidate/jobs")
 
 
-def test_logout_requires_login_and_logs_out(candidate_client):
-    assert candidate_client.get("/logout").status_code == 302
+def test_logout_is_post_only_and_logs_out(candidate_client):
+    assert candidate_client.get("/logout").status_code == 405
+    assert candidate_client.post("/logout").status_code == 302
     assert candidate_client.get("/candidate/").status_code == 302  # back to login
 
 

@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 
 from flask_login import UserMixin
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -10,28 +11,146 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+def as_utc(value):
+    """SQLite hands back naive datetimes even for timezone-aware columns; treat those as UTC."""
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=timezone.utc)
+
+
+def new_session_token():
+    return secrets.token_hex(16)
+
+
 class User(UserMixin, db.Model):
     ROLE_CANDIDATE = "candidate"
     ROLE_HR = "hr"
+    ROLE_ADMIN = "admin"
+    ROLES = (ROLE_CANDIDATE, ROLE_HR, ROLE_ADMIN)
+    ROLE_LABELS = {ROLE_CANDIDATE: "Candidate", ROLE_HR: "HR", ROLE_ADMIN: "Admin"}
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default=ROLE_CANDIDATE)
+    role = db.Column(db.String(20), nullable=False, default=ROLE_CANDIDATE, index=True)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+    # Account state
+    active = db.Column(db.Boolean, nullable=False, default=True)  # admins can deactivate accounts
+    email_verified_at = db.Column(db.DateTime(timezone=True))
+    pending_email = db.Column(db.String(255))  # new address awaiting confirmation
+    session_token = db.Column(db.String(32), nullable=False, default=new_session_token)  # rotated to end all sessions
+    failed_login_count = db.Column(db.Integer, nullable=False, default=0)
+    locked_until = db.Column(db.DateTime(timezone=True))
+    last_login_at = db.Column(db.DateTime(timezone=True))
+    password_changed_at = db.Column(db.DateTime(timezone=True))
+    consent_version = db.Column(db.String(20))  # privacy policy version the user accepted
+    consent_at = db.Column(db.DateTime(timezone=True))
 
     applications = db.relationship("Application", back_populates="candidate", cascade="all, delete-orphan")
 
+    # --- passwords and sessions ---
+
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
+        self.password_changed_at = utcnow()
+        self.end_all_sessions()
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
+    def end_all_sessions(self):
+        """Invalidates every existing login (including 'remember me' cookies) for this user."""
+        self.session_token = new_session_token()
+
+    def get_id(self):
+        # The session stores id + token, so rotating the token logs the user out everywhere
+        return f"{self.id}:{self.session_token}"
+
+    @property
+    def is_active(self):
+        return self.active
+
+    # --- lockout ---
+
+    @property
+    def is_locked(self):
+        return self.locked_until is not None and as_utc(self.locked_until) > utcnow()
+
+    @property
+    def lock_minutes_left(self):
+        if not self.is_locked:
+            return 0
+        return max(1, int((as_utc(self.locked_until) - utcnow()).total_seconds() // 60) + 1)
+
+    def register_failed_login(self, threshold, minutes):
+        self.failed_login_count = (self.failed_login_count or 0) + 1
+        if self.failed_login_count >= threshold:
+            self.locked_until = utcnow() + timedelta(minutes=minutes)
+            self.failed_login_count = 0
+            return True  # just locked
+        return False
+
+    def register_successful_login(self):
+        self.failed_login_count = 0
+        self.locked_until = None
+        self.last_login_at = utcnow()
+
+    def unlock(self):
+        self.failed_login_count = 0
+        self.locked_until = None
+
+    # --- status helpers ---
+
+    @property
+    def is_verified(self):
+        return self.email_verified_at is not None
+
+    def mark_verified(self):
+        if self.email_verified_at is None:
+            self.email_verified_at = utcnow()
+
     @property
     def is_hr(self):
-        return self.role == self.ROLE_HR
+        """HR pages are open to HR users and admins."""
+        return self.role in (self.ROLE_HR, self.ROLE_ADMIN)
+
+    @property
+    def is_admin(self):
+        return self.role == self.ROLE_ADMIN
+
+    @property
+    def is_candidate(self):
+        return self.role == self.ROLE_CANDIDATE
+
+    @property
+    def role_label(self):
+        return self.ROLE_LABELS.get(self.role, self.role)
+
+    def has_current_consent(self, version):
+        return self.consent_version == version
+
+    def give_consent(self, version):
+        self.consent_version = version
+        self.consent_at = utcnow()
+
+
+class AuditLog(db.Model):
+    """Append-only record of security-relevant events (logins, password changes, role changes, deletions...)."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    actor_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    actor_email = db.Column(db.String(255))  # kept so the log stays readable after the account is deleted
+    action = db.Column(db.String(64), nullable=False, index=True)
+    target_user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    target_email = db.Column(db.String(255))
+    ip_address = db.Column(db.String(64))
+    details = db.Column(db.JSON, nullable=False, default=dict)
+
+    actor = db.relationship("User", foreign_keys=[actor_id])
+    target_user = db.relationship("User", foreign_keys=[target_user_id])
 
 
 class Job(db.Model):
@@ -88,5 +207,12 @@ class Application(db.Model):
 
 
 @login_manager.user_loader
-def load_user(user_id):
-    return db.session.get(User, int(user_id))
+def load_user(session_id):
+    """Session ids look like '<user id>:<session token>'. Old-format, stale or deactivated sessions are rejected."""
+    user_id, _, token = session_id.partition(":")
+    if not user_id.isdigit() or not token:
+        return None
+    user = db.session.get(User, int(user_id))
+    if user is None or not user.active or not secrets.compare_digest(user.session_token, token):
+        return None
+    return user

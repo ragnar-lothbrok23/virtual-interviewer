@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import field %}
+{% block title %}Account settings · Virtual Interviewer{% endblock %}
+{% block content %}
+<h3 class="mb-4">Account settings</h3>
+<div class="row g-4">
+  <div class="col-lg-7">
+
+    <div class="card shadow-sm mb-4"><div class="card-body">
+      <h5 class="mb-3">Profile</h5>
+      <dl class="row small mb-3">
+        <dt class="col-sm-4 text-muted fw-normal">Email</dt>
+        <dd class="col-sm-8">{{ current_user.email }}
+          {% if current_user.is_verified %}<span class="badge text-bg-success ms-1">Verified</span>{% else %}<span class="badge text-bg-warning ms-1">Not verified</span>{% endif %}</dd>
+        <dt class="col-sm-4 text-muted fw-normal">Role</dt><dd class="col-sm-8">{{ current_user.role_label }}</dd>
+        <dt class="col-sm-4 text-muted fw-normal">Member since</dt><dd class="col-sm-8">{{ current_user.created_at.strftime('%d %b %Y') }}</dd>
+        {% if current_user.consent_at %}<dt class="col-sm-4 text-muted fw-normal">Privacy consent</dt><dd class="col-sm-8">Version {{ current_user.consent_version }}, given {{ current_user.consent_at.strftime('%d %b %Y') }}</dd>{% endif %}
+      </dl>
+      <form method="post" action="{{ url_for('account.update_profile') }}" novalidate>
+        {{ profile_form.hidden_tag() }}
+        {{ field(profile_form.name) }}
+        {{ profile_form.submit_profile(class="btn btn-primary") }}
+      </form>
+    </div></div>
+
+    <div class="card shadow-sm mb-4"><div class="card-body">
+      <h5 class="mb-3">Change email</h5>
+      {% if current_user.pending_email %}
+        <div class="alert alert-info small d-flex flex-wrap align-items-center gap-2">
+          <span>Waiting for confirmation of <strong>{{ current_user.pending_email }}</strong>. Check that inbox for the link.</span>
+          <form method="post" action="{{ url_for('account.cancel_email_change') }}" class="ms-auto">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-secondary">Cancel change</button>
+          </form>
+        </div>
+      {% endif %}
+      <form method="post" action="{{ url_for('account.change_email') }}" novalidate>
+        {{ email_form.hidden_tag() }}
+        {{ field(email_form.new_email) }}
+        {{ field(email_form.current_password) }}
+        {{ email_form.submit_email(class="btn btn-outline-primary") }}
+      </form>
+    </div></div>
+
+    <div class="card shadow-sm mb-4"><div class="card-body">
+      <h5 class="mb-3">Change password</h5>
+      <form method="post" action="{{ url_for('account.change_password') }}" novalidate>
+        {{ password_form.hidden_tag() }}
+        {{ field(password_form.current_password) }}
+        {{ field(password_form.password, help="At least 8 characters. Other devices will be signed out.") }}
+        {{ field(password_form.confirm) }}
+        {{ password_form.submit_password(class="btn btn-outline-primary") }}
+      </form>
+    </div></div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-4"><div class="card-body">
+      <h5 class="mb-2">Download my data</h5>
+      <p class="small text-muted">A ZIP file with your account details, applications, AI analysis results and the resumes you uploaded.</p>
+      <form method="post" action="{{ url_for('account.export_data') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-secondary"><i class="bi bi-download me-1"></i>Download ZIP</button>
+      </form>
+    </div></div>
+
+    <div class="card shadow-sm border-danger"><div class="card-body">
+      <h5 class="text-danger mb-2">Delete account</h5>
+      {% if can_delete %}
+        <p class="small text-muted">Permanently deletes your account, applications, uploaded resumes and analysis results. This cannot be undone.</p>
+        <form method="post" action="{{ url_for('account.delete_account') }}" novalidate>
+          {{ delete_form.hidden_tag() }}
+          {{ field(delete_form.current_password) }}
+          {{ field(delete_form.confirm_text) }}
+          {{ delete_form.submit_delete(class="btn btn-danger w-100") }}
+        </form>
+      {% else %}
+        <p class="small text-muted mb-0">You are the only active admin. Make another user an admin before deleting your account.</p>
+      {% endif %}
+    </div></div>
+  </div>
+</div>
+{% endblock %}

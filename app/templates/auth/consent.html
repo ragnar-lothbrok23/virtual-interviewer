@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import checkbox %}
+{% block title %}Privacy Policy · Virtual Interviewer{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-8 col-lg-6">
+    <div class="card shadow-sm"><div class="card-body p-4">
+      <h4 class="mb-2">{{ 'Our Privacy Policy has been updated' if updated else 'Before you continue' }}</h4>
+      <p class="text-muted">Please review how we handle your data. In short:</p>
+      <ul class="small">
+        <li>Your resume is analysed by an AI service (Google Gemini) to match you with job roles.</li>
+        <li>During interviews, your video and audio are recorded and analysed for answer quality and facial and vocal emotion.</li>
+        <li>Recruiters at the hiring organisation see your scores, transcripts and evidence.</li>
+        <li>You can download or permanently delete your data at any time from Account settings.</li>
+      </ul>
+      <form method="post" novalidate>
+        {{ form.hidden_tag() }}
+        {% set consent_label %}I have read and agree to the <a href="{{ url_for('main.privacy') }}" target="_blank" rel="noopener">Privacy Policy</a> and <a href="{{ url_for('main.terms') }}" target="_blank" rel="noopener">Terms of Use</a>.{% endset %}
+        {{ checkbox(form.consent, consent_label) }}
+        <div class="d-flex gap-2">
+          {{ form.submit(class="btn btn-primary") }}
+          <a href="{{ url_for('account.settings') }}" class="btn btn-outline-secondary">Manage or delete my data</a>
+        </div>
+      </form>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

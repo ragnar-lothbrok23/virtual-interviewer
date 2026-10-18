@@ -1,0 +1,5 @@
+Hi {{ user.name }},
+
+Someone signed in to your {{ app_name }} account asked to change its email address to {{ new_email }}. The change only happens if that new address confirms it.
+
+If this wasn't you, reset your password now: {{ link }}

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import pagination %}
+{% block title %}Users · Admin{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div>
+    <h3 class="mb-1">Users</h3>
+    <p class="text-muted small mb-0">{{ counts.candidate }} candidates · {{ counts.hr }} HR · {{ counts.admin }} admins</p>
+  </div>
+  <a href="{{ url_for('admin.invite') }}" class="btn btn-primary"><i class="bi bi-person-plus me-1"></i>Invite staff</a>
+</div>
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-5"><input type="search" name="q" value="{{ q }}" class="form-control" placeholder="Search name or email"></div>
+  <div class="col-6 col-md-3">
+    <select name="role" class="form-select">
+      <option value="">All roles</option>
+      {% for key, label in roles.items() %}<option value="{{ key }}" {{ 'selected' if role == key }}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-2">
+    <select name="status" class="form-select">
+      <option value="">Any status</option>
+      {% for key, label in [('active','Active'),('inactive','Deactivated'),('unverified','Unverified')] %}
+        <option value="{{ key }}" {{ 'selected' if status == key }}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2"><button class="btn btn-outline-primary w-100">Filter</button></div>
+</form>
+
+<div class="card shadow-sm">
+  {% if page.items %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-light"><tr><th>Name</th><th>Role</th><th>Status</th><th>Last login</th><th>Joined</th><th></th></tr></thead>
+      <tbody>
+        {% for u in page.items %}
+        <tr>
+          <td><div class="fw-semibold">{{ u.name }}</div><div class="small text-muted">{{ u.email }}</div></td>
+          <td><span class="badge text-bg-{{ 'dark' if u.role == 'admin' else ('primary' if u.role == 'hr' else 'light border') }}">{{ u.role_label }}</span></td>
+          <td class="small">
+            {% if not u.active %}<span class="badge text-bg-secondary">Deactivated</span>
+            {% elif u.is_locked %}<span class="badge text-bg-danger">Locked</span>
+            {% elif not u.is_verified %}<span class="badge text-bg-warning">Unverified</span>
+            {% else %}<span class="badge text-bg-success">Active</span>{% endif %}
+          </td>
+          <td class="small text-muted">{{ u.last_login_at.strftime('%d %b %Y %H:%M') if u.last_login_at else 'Never' }}</td>
+          <td class="small text-muted">{{ u.created_at.strftime('%d %b %Y') }}</td>
+          <td class="text-end"><a href="{{ url_for('admin.user_detail', user_id=u.id) }}" class="btn btn-sm btn-outline-primary">Manage</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-muted">No users match these filters.</div>
+  {% endif %}
+</div>
+{{ pagination(page, 'admin.users', q=q, role=role, status=status) }}
+{% endblock %}

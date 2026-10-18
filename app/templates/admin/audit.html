@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import pagination %}
+{% block title %}Audit log · Admin{% endblock %}
+{% block content %}
+<h3 class="mb-1">Audit log</h3>
+<p class="text-muted small">Security events: sign-ins, failed attempts, lockouts, password and email changes, role changes, deletions.</p>
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-4">
+    <select name="action" class="form-select">
+      <option value="">All events</option>
+      {% for a in actions %}<option value="{{ a }}" {{ 'selected' if action == a }}>{{ a }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-md-5"><input type="search" name="email" value="{{ email }}" class="form-control" placeholder="Filter by email"></div>
+  <div class="col-md-3"><button class="btn btn-outline-primary w-100">Filter</button></div>
+</form>
+<div class="card shadow-sm">
+  {% set events = page.items %}
+  {% include "admin/_audit_rows.html" %}
+</div>
+{{ pagination(page, 'admin.audit_log', action=action, email=email) }}
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Terms of Use · Virtual Interviewer{% endblock %}
+{% block content %}
+{#- Operators: review with legal counsel and add organisation details before going live. -#}
+<div class="row justify-content-center">
+  <div class="col-lg-9">
+    <div class="card shadow-sm"><div class="card-body p-4 p-lg-5">
+      <h2>Terms of Use</h2>
+      <p class="text-muted small">Version {{ version }}</p>
+
+      <h5 class="mt-4">1. Using the platform</h5>
+      <p>The Virtual Interviewer platform lets candidates apply for roles and take AI-assisted interviews, and lets the
+        hiring organisation's staff review applications. You must provide accurate information and keep your password secret.</p>
+
+      <h5 class="mt-4">2. Honest participation</h5>
+      <ul>
+        <li>Answer interview questions yourself, without help from other people or tools, unless the interview says otherwise.</li>
+        <li>Do not attempt to manipulate the AI evaluation (for example by giving it instructions inside your answers or resume).</li>
+        <li>Do not share interview questions or access links with others.</li>
+      </ul>
+      <p>Integrity signals (such as leaving the interview window or another person appearing on camera) are recorded and
+        shown to recruiters.</p>
+
+      <h5 class="mt-4">3. Accounts</h5>
+      <p>Administrators may deactivate accounts that break these terms or are used to misuse the platform. You can delete
+        your own account at any time.</p>
+
+      <h5 class="mt-4">4. AI evaluation</h5>
+      <p>Scores are produced automatically and may contain errors. They help recruiters but do not by themselves decide
+        the outcome of an application.</p>
+
+      <h5 class="mt-4">5. Availability</h5>
+      <p>We aim to keep the platform available but cannot guarantee uninterrupted service. If an interview is interrupted
+        by a technical problem, you will be able to resume or reschedule it.</p>
+
+      <h5 class="mt-4">6. Privacy</h5>
+      <p>How we handle your personal data is described in the <a href="{{ url_for('main.privacy') }}">Privacy Policy</a>.</p>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

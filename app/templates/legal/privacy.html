@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Privacy Policy · Virtual Interviewer{% endblock %}
+{% block content %}
+{#- Operators: review this policy with legal counsel for your jurisdiction (e.g. India's DPDP Act 2023, GDPR)
+    and fill in the organisation details before going live. Bump PRIVACY_POLICY_VERSION in config.py after any change. -#}
+<div class="row justify-content-center">
+  <div class="col-lg-9">
+    <div class="card shadow-sm"><div class="card-body p-4 p-lg-5">
+      <h2>Privacy Policy</h2>
+      <p class="text-muted small">Version {{ version }}</p>
+
+      <p>This policy explains what personal data the Virtual Interviewer platform collects, why, who can see it, how long
+        it is kept, and the choices you have. By creating an account you agree to this processing.</p>
+
+      <h5 class="mt-4">1. Data we collect</h5>
+      <ul>
+        <li><strong>Account details:</strong> name, email address, password (stored only as a secure hash), role, and sign-in history.</li>
+        <li><strong>Resume:</strong> the file you upload, the text extracted from it, and the structured profile produced from it (skills, experience, education, projects, certifications).</li>
+        <li><strong>Interview data:</strong> video and audio recorded during an interview, transcripts of your answers, answer scores, facial and vocal emotion estimates, and integrity signals (for example, whether a face was visible).</li>
+        <li><strong>Technical data:</strong> IP address and timestamps of security events (sign-ins, password changes), kept in an audit log to protect accounts.</li>
+      </ul>
+
+      <h5 class="mt-4">2. Why we use it</h5>
+      <ul>
+        <li>To match your profile to job roles and calculate a match score.</li>
+        <li>To run interviews, ask follow-up questions, and produce a scorecard for recruiters.</li>
+        <li>To schedule interviews and send you notifications.</li>
+        <li>To keep accounts secure and investigate misuse.</li>
+      </ul>
+      <p>Automated scores support recruiters; they are not the sole basis of a hiring decision. Recruiters review the
+        scorecard, transcripts and evidence and make the final decision.</p>
+
+      <h5 class="mt-4">3. AI processing and service providers</h5>
+      <p>Resume text and interview transcripts or audio are sent to <strong>Google's Gemini API</strong> for analysis
+        (parsing, scoring, transcription and semantic matching). Facial emotion analysis runs on our own servers.
+        Email notifications are sent through <strong>Gmail</strong>. These providers process data on our behalf only to deliver these functions.</p>
+
+      <h5 class="mt-4">4. Who can see your data</h5>
+      <p>Recruiters (HR users) and administrators of the hiring organisation can see your profile, applications, scores,
+        transcripts and evidence. Other candidates can never see your data.</p>
+
+      <h5 class="mt-4">5. How long we keep it</h5>
+      <p>Your data is kept while your account exists. Interview recordings may be deleted earlier according to the
+        organisation's retention schedule. When you delete your account, your profile, applications, uploaded files and
+        analysis results are permanently deleted. A minimal record of security events (with your email address) is kept
+        in the audit log for security and legal purposes.</p>
+
+      <h5 class="mt-4">6. Your rights</h5>
+      <ul>
+        <li><strong>Access and portability:</strong> download all your data from <em>Account settings → Download my data</em>.</li>
+        <li><strong>Correction:</strong> update your name and email in Account settings, or upload an updated resume.</li>
+        <li><strong>Deletion:</strong> permanently delete your account from <em>Account settings → Delete account</em>.</li>
+        <li><strong>Withdraw consent:</strong> delete your account at any time; processing stops immediately.</li>
+      </ul>
+
+      <h5 class="mt-4">7. Security</h5>
+      <p>Connections are encrypted (HTTPS), passwords are hashed, accounts are protected against repeated guessing,
+        and access is restricted by role. Security events are logged and reviewed.</p>
+
+      <h5 class="mt-4">8. Changes</h5>
+      <p>If this policy changes, you will be asked to review and accept the new version the next time you sign in.</p>
+
+      <h5 class="mt-4">9. Contact</h5>
+      <p>For privacy questions or requests, contact the administrator of the organisation that invited you to apply.</p>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

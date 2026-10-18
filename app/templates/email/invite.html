@@ -1,0 +1,7 @@
+{% extends "email/_layout.html" %}
+{% block body %}
+<p>Hi {{ user.name }},</p>
+<p>{{ inviter.name }} has invited you to {{ app_name }} as <strong>{{ user.role_label }}</strong>.</p>
+{% with label="Set my password" %}{% include "email/_button.html" %}{% endwith %}
+<p>The invitation expires in {{ days }} days.</p>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% if events %}
+<div class="table-responsive">
+  <table class="table table-sm mb-0 align-middle small">
+    <thead class="table-light"><tr><th>When (UTC)</th><th>Event</th><th>By</th><th>Account</th><th>IP</th><th>Details</th></tr></thead>
+    <tbody>
+      {% for e in events %}
+      <tr>
+        <td class="text-nowrap text-muted">{{ e.created_at.strftime('%d %b %Y %H:%M:%S') }}</td>
+        <td><code class="{{ 'text-danger' if 'failed' in e.action or 'locked' in e.action or 'deleted' in e.action or 'blocked' in e.action else '' }}">{{ e.action }}</code></td>
+        <td>{{ e.actor_email or '—' }}</td>
+        <td>{{ e.target_email or '—' }}</td>
+        <td class="text-muted">{{ e.ip_address or '—' }}</td>
+        <td class="text-muted">{% for k, v in (e.details or {}).items() %}{{ k }}={{ v }}{{ ', ' if not loop.last }}{% endfor %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card-body text-muted small">No activity recorded.</div>
+{% endif %}

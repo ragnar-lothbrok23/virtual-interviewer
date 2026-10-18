@@ -10,7 +10,10 @@
         {{ form.hidden_tag() }}
         {{ field(form.email) }}
         {{ field(form.password) }}
-        <div class="form-check mb-3">{{ form.remember(class="form-check-input") }} {{ form.remember.label(class="form-check-label") }}</div>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="form-check">{{ form.remember(class="form-check-input") }} {{ form.remember.label(class="form-check-label") }}</div>
+          <a href="{{ url_for('auth.forgot_password') }}" class="small">Forgot password?</a>
+        </div>
         {{ form.submit(class="btn btn-primary w-100") }}
       </form>
       <p class="small text-muted mt-3 mb-0">New candidate? <a href="{{ url_for('auth.register') }}">Create an account</a></p>

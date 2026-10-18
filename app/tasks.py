@@ -40,6 +40,15 @@ def app_context():
     return _worker_app.app_context()
 
 
+@huey.task(retries=3, retry_delay=60)
+def deliver_email(message):
+    """Send one email; retried up to 3 times (a minute apart) if the mail server fails."""
+    from .services.mail import deliver
+
+    with app_context():
+        deliver(message)
+
+
 @huey.task()
 def ping(message):
     """Health check job: proves a worker is consuming the queue."""

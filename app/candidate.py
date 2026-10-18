@@ -43,6 +43,9 @@ def apply(job_id):
     if not job.is_open:
         flash("This job is no longer accepting applications.", "warning")
         return redirect(url_for("candidate.jobs"))
+    if not current_user.is_verified:
+        flash("Please verify your email address before applying. Check your inbox, or resend the link below.", "warning")
+        return redirect(url_for("candidate.dashboard"))
 
     form = ApplyForm()
     if form.validate_on_submit():

@@ -51,8 +51,18 @@ def test_production_rejects_short_secret(monkeypatch):
 
 def test_production_accepts_complete_config(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@h/db")
-    _prod(monkeypatch, SECRET_KEY="x" * 64, REDIS_URL="redis://localhost:6379/0", GEMINI_API_KEY="k")
+    _prod(monkeypatch, SECRET_KEY="x" * 64, REDIS_URL="redis://localhost:6379/0", GEMINI_API_KEY="k",
+          APP_BASE_URL="https://interviews.example.com", MAIL_BACKEND="gmail_smtp")
     ProductionConfig.validate()
+
+
+def test_production_requires_https_base_url_and_real_mail(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@h/db")
+    _prod(monkeypatch, SECRET_KEY="x" * 64, REDIS_URL="redis://r", GEMINI_API_KEY="k",
+          APP_BASE_URL="http://insecure.example.com", MAIL_BACKEND="console")
+    with pytest.raises(RuntimeError) as err:
+        ProductionConfig.validate()
+    assert "APP_BASE_URL" in str(err.value) and "MAIL_BACKEND" in str(err.value)
 
 
 def test_production_cookie_and_https_settings():

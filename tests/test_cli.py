@@ -6,18 +6,27 @@ def run(app, *args):
 
 
 def test_create_hr(app):
-    result = run(app, "create-hr", "--name", "HR Admin", "--email", " HR@Test.com ", "--password", "hrpass123")
+    result = run(app, "create-hr", "--name", "HR Admin", "--email", " HR@Test.com ", "--password", "Recruit-2026!")
     assert result.exit_code == 0 and "HR account created" in result.output
     with app.app_context():
         user = User.query.one()
-        assert user.email == "hr@test.com" and user.role == User.ROLE_HR and user.check_password("hrpass123")
+        assert user.email == "hr@test.com" and user.role == User.ROLE_HR and user.check_password("Recruit-2026!")
+        assert user.is_verified
+
+
+def test_create_admin(app):
+    result = run(app, "create-admin", "--name", "Root", "--email", "root@test.com", "--password", "Admin-Pass-2026")
+    assert result.exit_code == 0 and "Admin account created" in result.output
+    with app.app_context():
+        assert User.query.one().is_admin
 
 
 def test_create_hr_validation(app, make_user):
     make_user("taken@test.com")
     assert "at least 8" in run(app, "create-hr", "--name", "A", "--email", "a@test.com", "--password", "short").output
-    assert "valid email" in run(app, "create-hr", "--name", "A", "--email", "nope", "--password", "password1").output
-    assert "already exists" in run(app, "create-hr", "--name", "A", "--email", "taken@test.com", "--password", "password1").output
+    assert "valid email" in run(app, "create-hr", "--name", "A", "--email", "nope", "--password", "Recruit-2026!").output
+    assert "too common" in run(app, "create-hr", "--name", "A", "--email", "a@test.com", "--password", "password123").output
+    assert "already exists" in run(app, "create-hr", "--name", "A", "--email", "taken@test.com", "--password", "Recruit-2026!").output
     with app.app_context():
         assert User.query.filter_by(role=User.ROLE_HR).count() == 0
 

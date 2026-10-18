@@ -6,7 +6,7 @@ from .main import role_required
 from .models import Application, Job, User
 
 bp = Blueprint("hr", __name__, url_prefix="/hr")
-hr_only = role_required(User.ROLE_HR)
+hr_only = role_required(User.ROLE_HR, User.ROLE_ADMIN)
 
 
 @bp.route("/")

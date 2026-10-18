@@ -1,0 +1,7 @@
+Hi {{ user.name }},
+
+Please confirm that {{ new_email }} should become the email address for your {{ app_name }} account:
+
+{{ link }}
+
+The link expires in {{ hours }} hours. If you didn't ask for this change, ignore this email.

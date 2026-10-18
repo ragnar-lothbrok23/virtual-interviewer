@@ -1,0 +1,7 @@
+Hi {{ user.name }},
+
+{{ inviter.name }} has invited you to {{ app_name }} as {{ user.role_label }}. Open this link to set your password and activate your account:
+
+{{ link }}
+
+The invitation expires in {{ days }} days.

@@ -3,3 +3,4 @@
 pytest==9.1.1
 pytest-cov==7.1.0
 pgserver==0.1.4  # embedded PostgreSQL so tests also run against the production database engine
+freezegun==1.5.5

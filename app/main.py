@@ -10,18 +10,32 @@ from .extensions import csrf, db, limiter
 bp = Blueprint("main", __name__)
 
 
-def role_required(role):
+def role_required(*roles):
     def decorator(view):
         @wraps(view)
         @login_required
         def wrapped(*args, **kwargs):
-            if current_user.role != role:
+            if current_user.role not in roles:
                 abort(403)
             return view(*args, **kwargs)
 
         return wrapped
 
     return decorator
+
+
+# Pages a candidate may use before accepting the current privacy policy
+CONSENT_EXEMPT = {"auth.consent", "auth.logout", "auth.verify_email", "main.privacy", "main.terms", "main.healthz",
+                  "static", "account.settings", "account.export_data", "account.delete_account",
+                  "account.confirm_email_change"}
+
+
+@bp.before_app_request
+def require_current_consent():
+    """Candidates must accept the current privacy policy (re-asked whenever its version changes)."""
+    if (current_user.is_authenticated and current_user.is_candidate and request.endpoint not in CONSENT_EXEMPT
+            and not current_user.has_current_consent(current_app.config["PRIVACY_POLICY_VERSION"])):
+        return redirect(url_for("auth.consent", next=request.full_path if request.method == "GET" else None))
 
 
 @bp.route("/")
@@ -32,7 +46,19 @@ def index():
 @bp.route("/dashboard")
 @login_required
 def dashboard():
+    if current_user.is_admin:
+        return redirect(url_for("admin.users"))
     return redirect(url_for("hr.dashboard" if current_user.is_hr else "candidate.dashboard"))
+
+
+@bp.route("/privacy")
+def privacy():
+    return render_template("legal/privacy.html", version=current_app.config["PRIVACY_POLICY_VERSION"])
+
+
+@bp.route("/terms")
+def terms():
+    return render_template("legal/terms.html", version=current_app.config["PRIVACY_POLICY_VERSION"])
 
 
 @bp.route("/healthz")

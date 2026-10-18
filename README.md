@@ -17,9 +17,12 @@ py -3.11 -m venv venv
 venv\Scripts\pip install -r requirements-dev.txt
 copy .env.example .env          # then fill in SECRET_KEY and GEMINI_API_KEY
 venv\Scripts\flask --app run db upgrade
-venv\Scripts\flask --app run create-hr
+venv\Scripts\flask --app run create-admin    # first admin; invite HR users from the Admin panel
 venv\Scripts\flask --app run seed-jobs       # optional: three sample job roles
 ```
+
+In development, emails (verification, password reset, invitations) are not sent: the worker prints them
+in its terminal and saves them as `.eml` files in `instance/outbox/`, so you can open the links.
 
 Run the app and the background worker in two terminals:
 
@@ -60,6 +63,18 @@ enables secure cookies and HTTPS enforcement.
 |---|---|
 | `/healthz` | Liveness/readiness probe (checks the database) |
 
+## Roles and accounts
+
+| Role | How the account is created | Can do |
+|---|---|---|
+| Candidate | Signs up on the site (must accept the privacy policy and verify email to apply) | Apply to jobs, see own results, export or delete own data |
+| HR | Invited by an admin (or `flask create-hr`) | Manage jobs, review and rank applicants |
+| Admin | `flask create-admin`, or invited by another admin | Everything HR can do, plus user management and the audit log |
+
+Security: 5 failed logins lock an account for 15 minutes; changing or resetting a password signs the user
+out everywhere; reset and invitation links are single-use and expire; every security event is in the audit log.
+After changing the privacy policy, bump `PRIVACY_POLICY_VERSION` in `app/config.py` so candidates re-consent.
+
 ## Project layout
 
 ```
@@ -68,11 +83,13 @@ app/
   config.py        per-environment settings
   extensions.py    db, migrations, login, CSRF, rate limiter, security headers
   tasks.py         background jobs (Huey)
-  models.py        User, Job, Application
-  auth.py          sign up / log in / log out
+  models.py        User, AuditLog, Job, Application
+  auth.py          sign up, log in/out, email verification, password reset, invitations, consent
+  account.py       profile, email and password changes, data export, account deletion
+  admin.py         user management and audit log
   candidate.py     job browsing, resume upload, results
   hr.py            job management, applicant ranking and review
-  services/        Gemini wrapper, resume extraction and matching
+  services/        Gemini, resume matching, mail, tokens/password policy/audit, account operations
   templates/       Jinja2 + Bootstrap pages
 migrations/        Alembic migration scripts
 tests/             pytest suite

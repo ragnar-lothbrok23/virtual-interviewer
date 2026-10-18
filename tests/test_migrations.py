@@ -48,3 +48,22 @@ def test_upgrade_downgrade_roundtrip(fresh_app):
         upgrade()
         assert "application" in sa.inspect(db.engine).get_table_names()
         db.engine.dispose()
+
+
+def test_accounts_migration_backfills_existing_users(fresh_app):
+    """Upgrading a database that already has users must give each a session token and mark them active/verified."""
+    with fresh_app.app_context():
+        upgrade(revision="26b860603d35")  # schema before the accounts migration
+        db.session.execute(sa.text(
+            "INSERT INTO \"user\" (name, email, password_hash, role, created_at) "
+            "VALUES ('Old', 'old@test.com', 'x', 'candidate', CURRENT_TIMESTAMP), "
+            "('Older', 'older@test.com', 'y', 'hr', CURRENT_TIMESTAMP)"))
+        db.session.commit()
+        upgrade()
+        rows = db.session.execute(sa.text(
+            "SELECT active, session_token, failed_login_count, email_verified_at FROM \"user\" ORDER BY id")).fetchall()
+        assert len(rows) == 2
+        assert all(r[0] in (True, 1) and len(r[1]) == 32 and r[2] == 0 and r[3] is not None for r in rows)
+        assert rows[0][1] != rows[1][1]  # each account gets its own token
+        db.session.remove()
+        db.engine.dispose()

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import field %}
+{% block title %}Invite staff · Admin{% endblock %}
+{% block content %}
+<a href="{{ url_for('admin.users') }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> Users</a>
+<div class="row justify-content-center mt-2">
+  <div class="col-md-7 col-lg-5">
+    <div class="card shadow-sm"><div class="card-body p-4">
+      <h4 class="mb-1">Invite a staff member</h4>
+      <p class="small text-muted mb-4">They'll get an email with a link to set their password. The link is valid for 7 days.</p>
+      <form method="post" novalidate>
+        {{ form.hidden_tag() }}
+        {{ field(form.name) }}
+        {{ field(form.email) }}
+        <div class="mb-3">
+          {{ form.role.label(class="form-label") }}
+          {{ form.role(class="form-select" + (" is-invalid" if form.role.errors else "")) }}
+          {% for e in form.role.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          <div class="form-text">HR: manage jobs and review candidates. Admin: everything HR can do, plus user management and the audit log.</div>
+        </div>
+        {{ form.submit(class="btn btn-primary w-100") }}
+      </form>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

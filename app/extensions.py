@@ -5,7 +5,8 @@ from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from flask_talisman import Talisman
 from flask_wtf import CSRFProtect
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, event
+from sqlalchemy.engine import Engine
 
 # Stable constraint names so Alembic migrations behave the same on SQLite and PostgreSQL
 NAMING_CONVENTION = {
@@ -26,3 +27,12 @@ login_manager = LoginManager()
 login_manager.login_view = "auth.login"
 login_manager.login_message_category = "warning"
 login_manager.session_protection = "strong"
+
+
+@event.listens_for(Engine, "connect")
+def _sqlite_foreign_keys(dbapi_connection, connection_record):
+    """SQLite ignores foreign keys unless asked; enforce them so development behaves like PostgreSQL."""
+    if type(dbapi_connection).__module__.startswith("sqlite3"):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()

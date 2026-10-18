@@ -1,14 +1,50 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileAllowed, FileField, FileRequired
-from wtforms import BooleanField, EmailField, PasswordField, StringField, SubmitField, TextAreaField
+from wtforms import BooleanField, EmailField, PasswordField, SelectField, StringField, SubmitField, TextAreaField
 from wtforms.validators import DataRequired, Email, EqualTo, Length, ValidationError
 
 from .models import User
+from .services.security import MAX_PASSWORD_LENGTH, password_problems
 
+
+def normalise_email(value):
+    return (value or "").strip().lower()
+
+
+def email_is_taken(email, exclude_user_id=None):
+    email = normalise_email(email)
+    query = User.query.filter((User.email == email) | (User.pending_email == email))
+    if exclude_user_id is not None:
+        query = query.filter(User.id != exclude_user_id)
+    return query.first() is not None
+
+
+class StrongPassword:
+    """Applies the password policy; reads email/name from sibling fields when present."""
+
+    def __init__(self, email_field="email", name_field="name"):
+        self.email_field, self.name_field = email_field, name_field
+
+    def __call__(self, form, field):
+        # Forms without email/name fields (reset, change password) get them via form.policy_email / form.policy_name
+        email = getattr(getattr(form, self.email_field, None), "data", None) or getattr(form, "policy_email", "") or ""
+        name = getattr(getattr(form, self.name_field, None), "data", None) or getattr(form, "policy_name", "") or ""
+        problems = password_problems(field.data or "", email=email, name=name)
+        if problems:
+            raise ValidationError(" ".join(problems))
+
+
+def new_password_fields(label="Password"):
+    password = PasswordField(label, validators=[DataRequired(), Length(max=MAX_PASSWORD_LENGTH), StrongPassword()])
+    confirm = PasswordField(f"Confirm {label.lower()}", validators=[DataRequired(), EqualTo("password", "Passwords must match.")])
+    return password, confirm
+
+
+# ---------- authentication ----------
 
 class LoginForm(FlaskForm):
-    email = EmailField("Email", validators=[DataRequired(), Email()])
-    password = PasswordField("Password", validators=[DataRequired()])
+    email = EmailField("Email", validators=[DataRequired(), Email(), Length(max=255)])
+    password = PasswordField("Password", validators=[DataRequired(), Length(max=MAX_PASSWORD_LENGTH)])
     remember = BooleanField("Remember me")
     submit = SubmitField("Log in")
 
@@ -16,14 +52,91 @@ class LoginForm(FlaskForm):
 class RegisterForm(FlaskForm):
     name = StringField("Full name", validators=[DataRequired(), Length(max=120)])
     email = EmailField("Email", validators=[DataRequired(), Email(), Length(max=255)])
-    password = PasswordField("Password", validators=[DataRequired(), Length(min=8)])
-    confirm = PasswordField("Confirm password", validators=[DataRequired(), EqualTo("password", "Passwords must match.")])
+    password, confirm = new_password_fields()
+    consent = BooleanField("I have read and agree to the Privacy Policy and Terms of Use",
+                           validators=[DataRequired("You must accept the Privacy Policy and Terms to create an account.")])
     submit = SubmitField("Create account")
 
+    def validate_name(self, field):
+        if not field.data.strip():
+            raise ValidationError("Please enter your name.")
+
     def validate_email(self, field):
-        if User.query.filter_by(email=field.data.strip().lower()).first():
+        if email_is_taken(field.data):
             raise ValidationError("An account with this email already exists.")
 
+
+class ForgotPasswordForm(FlaskForm):
+    email = EmailField("Email", validators=[DataRequired(), Email(), Length(max=255)])
+    submit = SubmitField("Send reset link")
+
+
+class ResetPasswordForm(FlaskForm):
+    password, confirm = new_password_fields("New password")
+    submit = SubmitField("Set password")
+
+
+class ResendVerificationForm(FlaskForm):
+    submit = SubmitField("Resend verification email")
+
+
+class ConsentForm(FlaskForm):
+    consent = BooleanField("I have read and agree to the Privacy Policy and Terms of Use",
+                           validators=[DataRequired("Please accept to continue.")])
+    submit = SubmitField("Continue")
+
+
+# ---------- account settings ----------
+
+class ProfileForm(FlaskForm):
+    name = StringField("Full name", validators=[DataRequired(), Length(max=120)])
+    submit_profile = SubmitField("Save name")
+
+    def validate_name(self, field):
+        if not field.data.strip():
+            raise ValidationError("Please enter your name.")
+
+
+class ChangeEmailForm(FlaskForm):
+    new_email = EmailField("New email", validators=[DataRequired(), Email(), Length(max=255)])
+    current_password = PasswordField("Current password", validators=[DataRequired(), Length(max=MAX_PASSWORD_LENGTH)])
+    submit_email = SubmitField("Send confirmation link")
+
+
+class ChangePasswordForm(FlaskForm):
+    current_password = PasswordField("Current password", validators=[DataRequired(), Length(max=MAX_PASSWORD_LENGTH)])
+    password, confirm = new_password_fields("New password")
+    submit_password = SubmitField("Change password")
+
+
+class DeleteAccountForm(FlaskForm):
+    current_password = PasswordField("Current password", validators=[DataRequired(), Length(max=MAX_PASSWORD_LENGTH)])
+    confirm_text = StringField('Type DELETE to confirm', validators=[DataRequired()])
+    submit_delete = SubmitField("Permanently delete my account")
+
+    def validate_confirm_text(self, field):
+        if field.data.strip() != "DELETE":
+            raise ValidationError("Please type DELETE in capital letters.")
+
+
+# ---------- admin ----------
+
+class InviteStaffForm(FlaskForm):
+    name = StringField("Full name", validators=[DataRequired(), Length(max=120)])
+    email = EmailField("Email", validators=[DataRequired(), Email(), Length(max=255)])
+    role = SelectField("Role", choices=[(User.ROLE_HR, "HR"), (User.ROLE_ADMIN, "Admin")], validators=[DataRequired()])
+    submit = SubmitField("Send invitation")
+
+    def validate_name(self, field):
+        if not field.data.strip():
+            raise ValidationError("Please enter a name.")
+
+    def validate_email(self, field):
+        if email_is_taken(field.data):
+            raise ValidationError("An account with this email already exists.")
+
+
+# ---------- recruiting ----------
 
 class JobForm(FlaskForm):
     title = StringField("Job title", validators=[DataRequired(), Length(max=160)])

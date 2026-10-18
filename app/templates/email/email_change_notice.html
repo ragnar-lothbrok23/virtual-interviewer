@@ -1,0 +1,7 @@
+{% extends "email/_layout.html" %}
+{% block body %}
+<p>Hi {{ user.name }},</p>
+<p>Someone signed in to your {{ app_name }} account asked to change its email address to <strong>{{ new_email }}</strong>. The change only happens if that new address confirms it.</p>
+<p>If this wasn't you, reset your password now:</p>
+{% with label="Reset my password" %}{% include "email/_button.html" %}{% endwith %}
+{% endblock %}

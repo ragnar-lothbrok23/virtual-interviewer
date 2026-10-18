@@ -57,6 +57,8 @@ def create_app(config_class=None):
     )
 
     from . import models  # noqa: F401  (registers tables with SQLAlchemy)
+    from .account import bp as account_bp
+    from .admin import bp as admin_bp
     from .auth import bp as auth_bp
     from .candidate import bp as candidate_bp
     from .hr import bp as hr_bp
@@ -66,6 +68,8 @@ def create_app(config_class=None):
     app.register_blueprint(main_bp)
     app.register_blueprint(candidate_bp)
     app.register_blueprint(hr_bp)
+    app.register_blueprint(account_bp)
+    app.register_blueprint(admin_bp)
 
     register_cli(app)
     app.logger.info("App started (env=%s, db=%s)", config_class.ENV_NAME, db_kind(app))
@@ -86,26 +90,46 @@ def configure_logging(app):
 
 
 def register_cli(app):
+    def create_staff(role, name, email, password):
+        from .models import User
+        from .services.security import audit, password_problems
+
+        name, email = name.strip(), email.strip().lower()
+        if not name or "@" not in email:
+            raise click.ClickException("A name and a valid email are required.")
+        problems = password_problems(password, email=email, name=name)
+        if problems:
+            raise click.ClickException(" ".join(problems))
+        if User.query.filter_by(email=email).first():
+            raise click.ClickException(f"An account with {email} already exists.")
+        user = User(name=name, email=email, role=role)
+        user.set_password(password)
+        user.mark_verified()  # created by someone with server access
+        db.session.add(user)
+        db.session.flush()
+        audit("staff.created_cli", target=user, role=role)
+        db.session.commit()
+        click.echo(f"{user.role_label} account created for {email}.")
+
+    @app.cli.command("create-admin")
+    @click.option("--name", prompt=True)
+    @click.option("--email", prompt=True)
+    @click.password_option()
+    def create_admin(name, email, password):
+        """Create an Admin account (manages users; also has HR access). Use this for the first account."""
+        from .models import User
+
+        create_staff(User.ROLE_ADMIN, name, email, password)
+
     @app.cli.command("create-hr")
     @click.option("--name", prompt=True)
     @click.option("--email", prompt=True)
     @click.password_option()
     def create_hr(name, email, password):
-        """Create an HR (recruiter) account. Candidates sign up themselves."""
+        """Create an HR (recruiter) account. Admins can also invite HR users from the Admin panel."""
         from .models import User
 
-        name, email = name.strip(), email.strip().lower()
-        if not name or "@" not in email:
-            raise click.ClickException("A name and a valid email are required.")
-        if len(password) < 8:
-            raise click.ClickException("Password must be at least 8 characters.")
-        if User.query.filter_by(email=email).first():
-            raise click.ClickException(f"An account with {email} already exists.")
-        user = User(name=name, email=email, role=User.ROLE_HR)
-        user.set_password(password)
-        db.session.add(user)
-        db.session.commit()
-        click.echo(f"HR account created for {email}.")
+        create_staff(User.ROLE_HR, name, email, password)
 
     @app.cli.command("seed-jobs")
     def seed_jobs():

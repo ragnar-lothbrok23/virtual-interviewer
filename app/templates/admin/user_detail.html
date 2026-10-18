@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ user.name }} · Admin{% endblock %}
+{% block content %}
+<a href="{{ url_for('admin.users') }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> Users</a>
+<div class="row g-4 mt-1">
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-4"><div class="card-body">
+      <h4 class="mb-1">{{ user.name }} {% if is_self %}<span class="badge text-bg-info fs-6 align-middle">You</span>{% endif %}</h4>
+      <div class="text-muted mb-3">{{ user.email }}</div>
+      <dl class="row small mb-0">
+        <dt class="col-5 text-muted fw-normal">Role</dt><dd class="col-7">{{ user.role_label }}</dd>
+        <dt class="col-5 text-muted fw-normal">Status</dt>
+        <dd class="col-7">
+          {% if not user.active %}<span class="badge text-bg-secondary">Deactivated</span>
+          {% elif user.is_locked %}<span class="badge text-bg-danger">Locked ({{ user.lock_minutes_left }} min)</span>
+          {% else %}<span class="badge text-bg-success">Active</span>{% endif %}
+        </dd>
+        <dt class="col-5 text-muted fw-normal">Email verified</dt><dd class="col-7">{{ user.email_verified_at.strftime('%d %b %Y') if user.email_verified_at else 'No' }}</dd>
+        {% if user.pending_email %}<dt class="col-5 text-muted fw-normal">Pending email</dt><dd class="col-7">{{ user.pending_email }}</dd>{% endif %}
+        <dt class="col-5 text-muted fw-normal">Last login</dt><dd class="col-7">{{ user.last_login_at.strftime('%d %b %Y %H:%M') if user.last_login_at else 'Never' }}</dd>
+        <dt class="col-5 text-muted fw-normal">Failed logins</dt><dd class="col-7">{{ user.failed_login_count }}</dd>
+        <dt class="col-5 text-muted fw-normal">Joined</dt><dd class="col-7">{{ user.created_at.strftime('%d %b %Y') }}</dd>
+        {% if user.is_candidate %}<dt class="col-5 text-muted fw-normal">Applications</dt><dd class="col-7">{{ user.applications|length }}</dd>{% endif %}
+        {% if user.consent_version %}<dt class="col-5 text-muted fw-normal">Consent</dt><dd class="col-7">v{{ user.consent_version }}</dd>{% endif %}
+      </dl>
+    </div></div>
+
+    {% macro action(endpoint, label, style='outline-secondary', disabled=False, title='') %}
+      <form method="post" action="{{ url_for(endpoint, user_id=user.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm btn-{{ style }} mb-1" {{ 'disabled' if disabled }} title="{{ title }}">{{ label }}</button>
+      </form>
+    {% endmacro %}
+
+    <div class="card shadow-sm mb-4"><div class="card-body">
+      <h6 class="mb-3">Actions</h6>
+      {% if user.active %}
+        {{ action('admin.deactivate', 'Deactivate', 'outline-danger', is_self or last_admin, "Can't deactivate yourself or the last admin" if (is_self or last_admin) else '') }}
+      {% else %}
+        {{ action('admin.activate', 'Reactivate', 'outline-success') }}
+      {% endif %}
+      {% if user.is_locked or user.failed_login_count %}{{ action('admin.unlock', 'Unlock') }}{% endif %}
+      {% if not is_self %}{{ action('admin.force_sign_out', 'Sign out everywhere') }}{% endif %}
+      {% if not user.is_candidate and not user.last_login_at %}{{ action('admin.resend_invite', 'Resend invitation') }}{% endif %}
+
+      {% if not user.is_candidate and not is_self %}
+        <hr>
+        <form method="post" action="{{ url_for('admin.change_role', user_id=user.id) }}" class="d-flex gap-2 align-items-center">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="small text-muted" for="role">Role</label>
+          <select name="role" id="role" class="form-select form-select-sm w-auto">
+            <option value="hr" {{ 'selected' if user.role == 'hr' }}>HR</option>
+            <option value="admin" {{ 'selected' if user.role == 'admin' }}>Admin</option>
+          </select>
+          <button class="btn btn-sm btn-outline-primary" {{ 'disabled' if last_admin }}>Change role</button>
+        </form>
+      {% endif %}
+    </div></div>
+
+    {% if not is_self and not last_admin %}
+    <div class="card shadow-sm border-danger"><div class="card-body">
+      <h6 class="text-danger">Delete permanently</h6>
+      <p class="small text-muted">Removes the account and all of its applications and files. The audit log keeps a record. Type <strong>{{ user.email }}</strong> to confirm.</p>
+      <form method="post" action="{{ url_for('admin.delete', user_id=user.id) }}" class="d-flex gap-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" name="confirm_email" class="form-control form-control-sm" placeholder="{{ user.email }}" autocomplete="off">
+        <button class="btn btn-sm btn-danger">Delete</button>
+      </form>
+    </div></div>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+        Recent activity <a href="{{ url_for('admin.audit_log', email=user.email) }}" class="small fw-normal">Full log</a>
+      </div>
+      {% include "admin/_audit_rows.html" %}
+    </div>
+  </div>
+</div>
+{% endblock %}

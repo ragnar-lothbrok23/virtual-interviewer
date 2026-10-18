@@ -92,6 +92,11 @@ def run_migrations_online():
     connectable = get_engine()
 
     with connectable.connect() as connection:
+        if connection.dialect.name == "sqlite":
+            # Batch migrations rebuild tables; SQLite must not enforce foreign keys while that happens.
+            # (PRAGMA has no effect inside a transaction, so it is set before one starts.)
+            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            connection.commit()
         context.configure(
             connection=connection,
             target_metadata=get_metadata(),
@@ -100,6 +105,10 @@ def run_migrations_online():
 
         with context.begin_transaction():
             context.run_migrations()
+
+        if connection.dialect.name == "sqlite":
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")  # pooled connections may be reused by the app
+            connection.commit()
 
 
 if context.is_offline_mode():

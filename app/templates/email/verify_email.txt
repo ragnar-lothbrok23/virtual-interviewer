@@ -1,0 +1,7 @@
+Hi {{ user.name }},
+
+Please confirm your email address for {{ app_name }} by opening this link:
+
+{{ link }}
+
+The link expires in {{ hours }} hours. If you didn't create an account, you can ignore this email.

@@ -66,6 +66,7 @@ def _clean_state(app):
         f.unlink()
     limiter.reset()
     app.config["WTF_CSRF_ENABLED"] = False
+    app.extensions.get("mail_outbox", []).clear()
 
 
 @pytest.fixture(autouse=True)
@@ -119,12 +120,20 @@ def fake_gemini(monkeypatch):
     return fake
 
 
+PASSWORD = "Correct-Horse-42"
+
+
 @pytest.fixture
 def make_user(app):
-    def _make(email="user@test.com", password="password123", role=User.ROLE_CANDIDATE, name="Test User"):
+    def _make(email="user@test.com", password=PASSWORD, role=User.ROLE_CANDIDATE, name="Test User",
+              verified=True, consent=True, active=True):
         with app.app_context():
-            user = User(name=name, email=email, role=role)
+            user = User(name=name, email=email, role=role, active=active)
             user.set_password(password)
+            if verified:
+                user.mark_verified()
+            if consent:
+                user.give_consent(app.config["PRIVACY_POLICY_VERSION"])
             db.session.add(user)
             db.session.commit()
             return user.id
@@ -132,8 +141,16 @@ def make_user(app):
 
 
 @pytest.fixture
+def outbox(app):
+    """Emails 'sent' during the test (memory mail backend)."""
+    box = app.extensions.setdefault("mail_outbox", [])
+    box.clear()
+    return box
+
+
+@pytest.fixture
 def login(app):
-    def _login(email, password="password123"):
+    def _login(email, password=PASSWORD):
         client = app.test_client()
         response = client.post("/login", data={"email": email, "password": password})
         assert response.status_code == 302, "login failed"

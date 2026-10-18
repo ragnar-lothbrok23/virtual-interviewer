@@ -69,8 +69,24 @@ class BaseConfig:
     GEMINI_EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-2")
     GEMINI_PARSE_THINKING = os.getenv("GEMINI_PARSE_THINKING", "LOW")  # LOW / MEDIUM / HIGH
 
+    # Public address of the site, used for links in emails sent from background jobs (no request available there)
+    APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:5000").rstrip("/")
+    APP_NAME = "Virtual Interviewer"
+
+    # Email. "console" logs messages and saves them to instance/outbox (development); Gmail backends come in Phase 3.
+    MAIL_BACKEND = os.getenv("MAIL_BACKEND", "console")
+    MAIL_OUTBOX_DIR = INSTANCE_DIR / "outbox"
     MAIL_USERNAME = os.getenv("MAIL_USERNAME", "")
     MAIL_APP_PASSWORD = os.getenv("MAIL_APP_PASSWORD", "")
+    MAIL_SENDER_NAME = os.getenv("MAIL_SENDER_NAME", "Virtual Interviewer")
+
+    # Accounts
+    EMAIL_VERIFY_MAX_AGE = 48 * 3600      # seconds a verification link stays valid
+    PASSWORD_RESET_MAX_AGE = 3600         # seconds a password reset link stays valid
+    INVITE_MAX_AGE = 7 * 24 * 3600        # seconds an HR/admin invitation stays valid
+    LOCKOUT_THRESHOLD = 5                 # failed logins before the account is locked
+    LOCKOUT_MINUTES = 15
+    PRIVACY_POLICY_VERSION = "2026-10-18"  # bump when the policy changes; candidates re-consent on next visit
 
     @classmethod
     def validate(cls):
@@ -94,6 +110,8 @@ class TestingConfig(BaseConfig):
     REDIS_URL = ""
     LOG_LEVEL = "WARNING"
     GEMINI_API_KEY = "test-key-never-used"
+    MAIL_BACKEND = "memory"
+    APP_BASE_URL = "http://localhost"
 
 
 class ProductionConfig(BaseConfig):
@@ -114,6 +132,10 @@ class ProductionConfig(BaseConfig):
             problems.append("REDIS_URL must be set (background jobs and rate limiting)")
         if not cls.GEMINI_API_KEY:
             problems.append("GEMINI_API_KEY must be set")
+        if not cls.APP_BASE_URL.startswith("https://"):
+            problems.append("APP_BASE_URL must be the public https:// address of the site")
+        if cls.MAIL_BACKEND in ("console", "memory"):
+            problems.append("MAIL_BACKEND must be a real email backend in production (Gmail)")
         if problems:
             raise RuntimeError("Invalid production configuration:\n  - " + "\n  - ".join(problems))
 
