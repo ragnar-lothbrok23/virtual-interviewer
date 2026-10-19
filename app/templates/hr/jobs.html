@@ -14,10 +14,12 @@
             {% for job in jobs %}
             <tr>
               <td><a href="{{ url_for('hr.job_detail', job_id=job.id) }}" class="fw-semibold text-decoration-none">{{ job.title }}</a>
-                  <div class="small text-muted">{{ job.skill_list|join(', ')|truncate(60) }}</div></td>
-              <td>{{ job.applications|length }}</td>
-              <td><span class="badge text-bg-{{ 'success' if job.is_open else 'secondary' }}">{{ 'Open' if job.is_open else 'Closed' }}</span></td>
-              <td class="text-end">
+                  <div class="small text-muted">{{ job.skill_list|join(', ')|truncate(60) }}</div>
+                  {% if job.closes_at %}<div class="small text-muted"><i class="bi bi-clock me-1"></i>{{ job.closes_at|localtime }}</div>{% endif %}</td>
+              <td>{{ job.applications|rejectattr('is_withdrawn')|list|length }}</td>
+              <td><span class="badge text-bg-{{ 'success' if job.is_accepting else 'secondary' }}">{{ job.state_label }}</span></td>
+              <td class="text-end text-nowrap">
+                <a href="{{ url_for('hr.edit_job', job_id=job.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
                 <form method="post" action="{{ url_for('hr.toggle_job', job_id=job.id) }}" class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="btn btn-sm btn-outline-secondary">{{ 'Close' if job.is_open else 'Reopen' }}</button>
@@ -41,7 +43,8 @@
         {{ field(form.title) }}
         {{ field(form.skills) }}
         {{ field(form.description) }}
-        {{ form.submit(class="btn btn-primary w-100") }}
+        {{ field(form.closes_at, help="Time zone: " ~ config.APP_TIMEZONE ~ ". Leave empty for no deadline.") }}
+        {{ form.submit(class="btn btn-primary w-100", value="Create job") }}
       </form>
     </div></div>
   </div>

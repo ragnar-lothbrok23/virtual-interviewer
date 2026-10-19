@@ -67,3 +67,37 @@ def test_accounts_migration_backfills_existing_users(fresh_app):
         assert rows[0][1] != rows[1][1]  # each account gets its own token
         db.session.remove()
         db.engine.dispose()
+
+
+def test_resume_hardening_migration_backfills_existing_applications(fresh_app):
+    """Applications analysed before Phase 4 become 'done'; ones HR decided on (per the audit log) keep source 'hr'."""
+    with fresh_app.app_context():
+        upgrade(revision="ede687b4685c")  # schema just before the resume-hardening migration
+        run = lambda sql: db.session.execute(sa.text(sql))
+        run("INSERT INTO \"user\" (id, name, email, password_hash, role, created_at, active, session_token, "
+            "failed_login_count) VALUES (1, 'C', 'c@test.com', 'x', 'candidate', CURRENT_TIMESTAMP, true, 'tok', 0)")
+        run("INSERT INTO job (id, title, description, skills, is_open, created_at) "
+            "VALUES (1, 'Dev', 'desc', 'Python', true, CURRENT_TIMESTAMP)")
+        run("INSERT INTO application (id, candidate_id, job_id, resume_path, resume_original_name, resume_text, "
+            "parsed, similarity, match_score, status, created_at) VALUES (1, 1, 1, 'a.pdf', 'a.pdf', 'text', "
+            "'{}', 0.8, 80, 'shortlisted', CURRENT_TIMESTAMP)")
+        run("INSERT INTO job (id, title, description, skills, is_open, created_at) "
+            "VALUES (2, 'Dev2', 'desc', 'Python', true, CURRENT_TIMESTAMP)")
+        run("INSERT INTO application (id, candidate_id, job_id, resume_path, resume_original_name, resume_text, "
+            "parsed, similarity, match_score, status, created_at) VALUES (2, 1, 2, 'b.docx', 'b.docx', 'text', "
+            "'{}', 0.7, 40, 'rejected', CURRENT_TIMESTAMP)")
+        run("INSERT INTO audit_log (created_at, action, details) VALUES (CURRENT_TIMESTAMP, "
+            "'application.status_changed', '{\"application_id\": 2, \"new_status\": \"rejected\"}')")
+        db.session.commit()
+        upgrade()
+        rows = db.session.execute(sa.text(
+            "SELECT id, analysis_status, analysis_attempts, status_source, resume_kind, analysed_at "
+            "FROM application ORDER BY id")).fetchall()
+        assert [(r[0], r[1], r[2], r[3], r[4]) for r in rows] == [(1, "done", 1, "auto", "pdf"), (2, "done", 1, "hr", "docx")]
+        assert all(r[5] is not None for r in rows)
+        # End the session's read transaction first: PostgreSQL makes ALTER TABLE wait for it (deadlock otherwise)
+        db.session.remove()
+        downgrade(revision="ede687b4685c")  # and back again
+        upgrade()
+        db.session.remove()
+        db.engine.dispose()

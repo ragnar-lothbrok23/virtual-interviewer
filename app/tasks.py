@@ -89,6 +89,27 @@ def deliver_email(message, task=None):
         return "sent"
 
 
+_cfg = get_config()
+
+
+@huey.task(retries=_cfg.ANALYSIS_RETRIES, retry_delay=_cfg.ANALYSIS_RETRY_DELAY, context=True)
+def analyse_application(application_id, task=None):
+    """Parse and score one resume with Gemini. Temporary AI errors are retried; others fail visibly."""
+    from .services.analysis import run_analysis
+
+    with app_context():
+        return run_analysis(application_id, retries_left=task.retries if task is not None else 0)
+
+
+@huey.task(retries=_cfg.ANALYSIS_RETRIES, retry_delay=_cfg.ANALYSIS_RETRY_DELAY)
+def rescore_job_applications(job_id, skills_changed):
+    """Re-score a job's applicants after HR edits the job."""
+    from .services.analysis import rescore_job
+
+    with app_context():
+        return rescore_job(job_id, skills_changed)
+
+
 @huey.task()
 def ping(message):
     """Health check job: proves a worker is consuming the queue."""

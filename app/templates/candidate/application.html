@@ -6,19 +6,87 @@
 <div class="row g-4 mt-1">
   <div class="col-lg-5">
     {{ match_summary(a) }}
+
+    {% if a.analysis_status == 'failed' %}
+    <form method="post" action="{{ url_for('candidate.retry_analysis', app_id=a.id) }}" class="mb-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-primary w-100"><i class="bi bi-arrow-clockwise me-1"></i>Try the analysis again</button>
+    </form>
+    {% endif %}
+
     <div class="alert alert-{{ 'success' if a.status == 'shortlisted' else 'light border' }} small">
-      {% if a.status == 'shortlisted' %}
+      {% if a.is_withdrawn %}
+        <i class="bi bi-box-arrow-left me-1"></i>You withdrew this application{% if a.withdrawn_at %} on {{ a.withdrawn_at|localtime }}{% endif %}.
+        {% if a.job.is_accepting %}You can <a href="{{ url_for('candidate.apply', job_id=a.job.id) }}">apply again</a> while the job is open.{% endif %}
+      {% elif a.status == 'shortlisted' %}
         <i class="bi bi-check-circle me-1"></i>You've been shortlisted. Interview scheduling opens in the next step.
       {% elif a.status == 'rejected' %}
         Thank you for applying. The recruiter has decided not to move forward with this application.
+      {% elif a.is_analysing %}
+        <i class="bi bi-hourglass-split me-1"></i>Your application is submitted. We'll show your match score as soon as the analysis finishes.
       {% else %}
         <i class="bi bi-hourglass-split me-1"></i>Your application is with the recruiter for review.
       {% endif %}
+      {% if a.job.closes_at and not a.is_withdrawn %}<div class="mt-1 text-muted">Applications close {{ a.job.closes_at|localtime }}.</div>{% endif %}
     </div>
+
+    {% if not a.is_withdrawn %}
+    <div class="card shadow-sm mb-3"><div class="card-body">
+      <h6 class="mb-2">Update your resume</h6>
+      {% if a.can_update_resume %}
+        <p class="small text-muted">Upload a newer version. It replaces the current one and is analysed again.</p>
+        <form method="post" action="{{ url_for('candidate.update_resume', app_id=a.id) }}" enctype="multipart/form-data">
+          {{ upload_form.hidden_tag() }}
+          <div class="input-group input-group-sm">
+            {{ upload_form.resume(class="form-control", accept=".pdf,.docx") }}
+            <button class="btn btn-outline-primary">Upload</button>
+          </div>
+        </form>
+      {% else %}
+        <p class="small text-muted mb-0">
+          {% if a.is_analysing %}Please wait for the current analysis to finish.
+          {% elif not a.job.is_accepting %}The job is no longer accepting applications.
+          {% else %}This application can no longer be updated.{% endif %}
+        </p>
+      {% endif %}
+    </div></div>
+
+    {% if a.status != 'rejected' %}
+    <div class="card shadow-sm border-danger-subtle"><div class="card-body">
+      <h6 class="mb-2">Withdraw application</h6>
+      <form method="post" action="{{ url_for('candidate.withdraw', app_id=a.id) }}">
+        {{ withdraw_form.hidden_tag() }}
+        <div class="form-check small mb-2">{{ withdraw_form.confirm(class="form-check-input") }} {{ withdraw_form.confirm.label(class="form-check-label") }}</div>
+        {{ withdraw_form.submit_withdraw(class="btn btn-sm btn-outline-danger") }}
+      </form>
+    </div></div>
+    {% endif %}
+    {% endif %}
   </div>
   <div class="col-lg-7">
-    <h6 class="text-muted mb-2">What we read from your resume <span class="small">({{ a.resume_original_name }})</span></h6>
-    {{ profile_card(a.parsed) }}
+    {% if a.parsed %}
+      <h6 class="text-muted mb-2">What we read from your resume <span class="small">({{ a.resume_original_name }})</span></h6>
+      {{ profile_card(a.parsed) }}
+    {% endif %}
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+{% if a.is_analysing %}
+<script nonce="{{ csp_nonce() }}">
+  // Reload once the background analysis finishes (checks every 3 s, gives up after ~6 minutes)
+  (function () {
+    const url = "{{ url_for('candidate.application_status', app_id=a.id) }}";
+    let tries = 0;
+    const check = () => fetch(url, {headers: {"Accept": "application/json"}})
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d && d.analysis_status !== "pending" && d.analysis_status !== "running") location.reload();
+        else if (++tries < 120) setTimeout(check, 3000);
+      })
+      .catch(() => { if (++tries < 120) setTimeout(check, 5000); });
+    setTimeout(check, 3000);
+  })();
+</script>
+{% endif %}
 {% endblock %}

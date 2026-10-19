@@ -6,6 +6,7 @@
   <div class="col-lg-7">
     <div class="card shadow-sm"><div class="card-body">
       <h4>{{ job.title }}</h4>
+      {% if job.closes_at %}<div class="small text-muted mb-2"><i class="bi bi-clock me-1"></i>Applications close {{ job.closes_at|localtime }}</div>{% endif %}
       <div class="mb-3">{% for s in job.skill_list %}<span class="badge rounded-pill text-bg-light border fw-normal me-1 mb-1">{{ s }}</span>{% endfor %}</div>
       <p class="mb-0" style="white-space: pre-line">{{ job.description }}</p>
     </div></div>
@@ -24,7 +25,7 @@
           <span class="spinner-border spinner-border-sm me-2 d-none" id="apply-spin"></span><span id="apply-text">Upload and apply</span>
         </button>
       </form>
-      <p class="small text-muted mt-3 mb-0"><i class="bi bi-info-circle me-1"></i>Gemini reads your resume, extracts your skills and experience, and compares them with this role by meaning — not just keywords. This takes about 10 seconds.</p>
+      <p class="small text-muted mt-3 mb-0"><i class="bi bi-info-circle me-1"></i>Gemini reads your resume, including your projects and experience, and compares it with this role by meaning, not just keywords. Your file is stored encrypted. You'll see your match score on the next page within about 20 seconds.</p>
     </div></div>
   </div>
 </div>
@@ -34,7 +35,7 @@
   document.getElementById('apply-form').addEventListener('submit', () => {
     document.getElementById('apply-btn').disabled = true;
     document.getElementById('apply-spin').classList.remove('d-none');
-    document.getElementById('apply-text').textContent = 'Analysing your resume…';
+    document.getElementById('apply-text').textContent = 'Uploading…';
   });
 </script>
 {% endblock %}

@@ -16,8 +16,8 @@ ORIGINAL_PARSE, ORIGINAL_EMBED = gemini.parse_resume, gemini.embed
 # ---------- text extraction ----------
 
 def test_extract_text_docx_and_pdf():
-    docx_text = resume.extract_text(SAMPLES / "arjun_backend_developer.docx")
-    pdf_text = resume.extract_text(SAMPLES / "priya_data_analyst.pdf")
+    docx_text = resume.extract_text((SAMPLES / "arjun_backend_developer.docx").read_bytes(), "docx")
+    pdf_text = resume.extract_text((SAMPLES / "priya_data_analyst.pdf").read_bytes(), "pdf")
     assert "Arjun Mehta" in docx_text and "Flask" in docx_text
     assert "Priya Raman" in pdf_text and "Power BI" in pdf_text
 
@@ -29,7 +29,7 @@ def test_extract_text_reads_docx_tables(tmp_path):
     table.cell(0, 0).text, table.cell(0, 1).text = "Skills", "Kubernetes and Terraform"
     path = tmp_path / "t.docx"
     doc.save(path)
-    assert "Kubernetes and Terraform" in resume.extract_text(path)
+    assert "Kubernetes and Terraform" in resume.extract_text(path.read_bytes(), "docx")
 
 
 def test_extract_text_rejects_near_empty_document(tmp_path):
@@ -38,18 +38,14 @@ def test_extract_text_rejects_near_empty_document(tmp_path):
     path = tmp_path / "short.docx"
     doc.save(path)
     with pytest.raises(resume.ResumeError, match="scanned PDF"):
-        resume.extract_text(path)
+        resume.extract_text(path.read_bytes(), "docx")
 
 
-def test_extract_text_rejects_corrupt_and_unknown_files(tmp_path):
-    bad = tmp_path / "bad.pdf"
-    bad.write_bytes(b"garbage")
+def test_extract_text_rejects_corrupt_and_unknown_files():
     with pytest.raises(resume.ResumeError, match="Could not read"):
-        resume.extract_text(bad)
-    other = tmp_path / "x.txt"
-    other.write_text("hello")
+        resume.extract_text(b"%PDF-garbage", "pdf")
     with pytest.raises(resume.ResumeError, match="Only PDF and DOCX"):
-        resume.extract_text(other)
+        resume.extract_text(b"hello", "txt")
 
 
 # ---------- scoring ----------

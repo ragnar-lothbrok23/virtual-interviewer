@@ -178,7 +178,9 @@ class Job(db.Model):
     description = db.Column(db.Text, nullable=False)
     skills = db.Column(db.Text, nullable=False)  # comma-separated required skills
     is_open = db.Column(db.Boolean, default=True, nullable=False)
+    closes_at = db.Column(db.DateTime(timezone=True))  # application deadline (UTC); None = no deadline
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     embedding = db.Column(db.LargeBinary)  # float32 bytes of the job's semantic embedding (cached)
 
     applications = db.relationship("Application", back_populates="job", cascade="all, delete-orphan")
@@ -191,25 +193,64 @@ class Job(db.Model):
     def embedding_text(self):
         return f"Job title: {self.title}\nRequired skills: {', '.join(self.skill_list)}\n{self.description}"
 
+    @property
+    def deadline_passed(self):
+        return self.closes_at is not None and as_utc(self.closes_at) <= utcnow()
+
+    @property
+    def is_accepting(self):
+        """Open for new applications: not closed by HR and the deadline (if any) hasn't passed."""
+        return self.is_open and not self.deadline_passed
+
+    @property
+    def state_label(self):
+        if not self.is_open:
+            return "Closed"
+        return "Deadline passed" if self.deadline_passed else "Open"
+
 
 class Application(db.Model):
     STATUS_SHORTLISTED = "shortlisted"
     STATUS_REVIEW = "under_review"
     STATUS_REJECTED = "rejected"
-    STATUS_LABELS = {STATUS_SHORTLISTED: "Shortlisted", STATUS_REVIEW: "Under review", STATUS_REJECTED: "Rejected"}
-    STATUS_COLORS = {STATUS_SHORTLISTED: "success", STATUS_REVIEW: "warning", STATUS_REJECTED: "secondary"}
+    STATUS_WITHDRAWN = "withdrawn"
+    STATUS_LABELS = {STATUS_SHORTLISTED: "Shortlisted", STATUS_REVIEW: "Under review", STATUS_REJECTED: "Rejected",
+                     STATUS_WITHDRAWN: "Withdrawn"}
+    STATUS_COLORS = {STATUS_SHORTLISTED: "success", STATUS_REVIEW: "warning", STATUS_REJECTED: "secondary",
+                     STATUS_WITHDRAWN: "light border text-dark"}
+    HR_STATUSES = (STATUS_SHORTLISTED, STATUS_REVIEW, STATUS_REJECTED)  # statuses HR may set
+
+    # Who decided the status: "auto" (match-score threshold) can be re-evaluated; "hr" is never overwritten
+    SOURCE_AUTO = "auto"
+    SOURCE_HR = "hr"
+
+    # Resume analysis lifecycle (runs in the background)
+    ANALYSIS_PENDING = "pending"
+    ANALYSIS_RUNNING = "running"
+    ANALYSIS_DONE = "done"
+    ANALYSIS_FAILED = "failed"
 
     id = db.Column(db.Integer, primary_key=True)
     candidate_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
     job_id = db.Column(db.Integer, db.ForeignKey("job.id"), nullable=False, index=True)
-    resume_path = db.Column(db.String(255), nullable=False)  # file name inside UPLOAD_FOLDER
+    resume_path = db.Column(db.String(255), nullable=False)  # encrypted file name inside UPLOAD_FOLDER
     resume_original_name = db.Column(db.String(255), nullable=False)
+    resume_kind = db.Column(db.String(8))  # "pdf" / "docx" (verified from the file's bytes)
+    resume_sha256 = db.Column(db.String(64), index=True)  # spots identical resumes from different candidates
     resume_text = db.Column(db.Text, nullable=False)
-    parsed = db.Column(db.JSON, nullable=False)  # structured profile extracted by Gemini
-    similarity = db.Column(db.Float, nullable=False)  # raw cosine similarity resume <-> job
-    match_score = db.Column(db.Float, nullable=False)  # 0-100 score shown to users
+    parsed = db.Column(db.JSON)  # structured profile extracted by Gemini (None until analysed)
+    embedding = db.Column(db.LargeBinary)  # float32 resume embedding, so editing a job can re-score cheaply
+    similarity = db.Column(db.Float)  # raw cosine similarity resume <-> job
+    match_score = db.Column(db.Float)  # 0-100 score shown to users
+    analysis_status = db.Column(db.String(10), nullable=False, default=ANALYSIS_PENDING, index=True)
+    analysis_error = db.Column(db.Text)
+    analysis_attempts = db.Column(db.Integer, nullable=False, default=0)
+    analysed_at = db.Column(db.DateTime(timezone=True))
     status = db.Column(db.String(20), nullable=False, default=STATUS_REVIEW, index=True)
+    status_source = db.Column(db.String(8), nullable=False, default=SOURCE_AUTO)
+    withdrawn_at = db.Column(db.DateTime(timezone=True))
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     candidate = db.relationship("User", back_populates="applications")
     job = db.relationship("Job", back_populates="applications")
@@ -223,6 +264,31 @@ class Application(db.Model):
     @property
     def status_color(self):
         return self.STATUS_COLORS.get(self.status, "light")
+
+    @property
+    def is_analysed(self):
+        return self.analysis_status == self.ANALYSIS_DONE and self.match_score is not None
+
+    @property
+    def is_analysing(self):
+        return self.analysis_status in (self.ANALYSIS_PENDING, self.ANALYSIS_RUNNING)
+
+    @property
+    def is_withdrawn(self):
+        return self.status == self.STATUS_WITHDRAWN
+
+    @property
+    def can_update_resume(self):
+        """Candidates may replace their resume while the job accepts applications and HR hasn't rejected them."""
+        return self.job.is_accepting and self.status != self.STATUS_REJECTED and not self.is_analysing
+
+    @property
+    def duplicates(self):
+        """Other candidates' applications that uploaded a byte-identical resume."""
+        if not self.resume_sha256:
+            return []
+        return (Application.query.filter(Application.resume_sha256 == self.resume_sha256,
+                                         Application.candidate_id != self.candidate_id).all())
 
 
 class EmailLog(db.Model):

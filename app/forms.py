@@ -1,7 +1,8 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileAllowed, FileField, FileRequired
-from wtforms import BooleanField, EmailField, PasswordField, SelectField, StringField, SubmitField, TextAreaField
-from wtforms.validators import DataRequired, Email, EqualTo, Length, ValidationError
+from wtforms import (BooleanField, DateTimeLocalField, EmailField, PasswordField, SelectField, StringField,
+                     SubmitField, TextAreaField)
+from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional, ValidationError
 
 from .models import User
 from .services.security import MAX_PASSWORD_LENGTH, password_problems
@@ -150,10 +151,27 @@ class JobForm(FlaskForm):
                          render_kw={"placeholder": "Python, Flask, SQL, REST APIs, Git"})
     description = TextAreaField("Job description", validators=[DataRequired(), Length(min=50, max=8000)],
                                 render_kw={"rows": 7})
-    submit = SubmitField("Create job")
+    closes_at = DateTimeLocalField("Application deadline (optional)", format="%Y-%m-%dT%H:%M",
+                                   validators=[Optional()])
+    submit = SubmitField("Save job")
+
+    def validate_skills(self, field):
+        skills = [s.strip() for s in field.data.split(",") if s.strip()]
+        if not skills:
+            raise ValidationError("Enter at least one skill.")
+        if len(skills) > 25:
+            raise ValidationError("Please list at most 25 required skills.")
+        if any(len(s) > 60 for s in skills):
+            raise ValidationError("Each skill must be at most 60 characters.")
 
 
 class ApplyForm(FlaskForm):
     resume = FileField("Resume (PDF or DOCX, max 5 MB)",
                        validators=[FileRequired("Please choose a file."), FileAllowed(["pdf", "docx"], "Only PDF or DOCX files.")])
     submit = SubmitField("Upload and apply")
+
+
+class WithdrawForm(FlaskForm):
+    confirm = BooleanField("I understand my application will be withdrawn",
+                           validators=[DataRequired("Please confirm you want to withdraw.")])
+    submit_withdraw = SubmitField("Withdraw application")

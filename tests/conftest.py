@@ -88,20 +88,32 @@ class FakeGemini:
         self.error = None
 
     def parse_resume(self, text, job):
+        from app.services.gemini import normalise_profile
+
         self.parse_calls += 1
         if self.error:
             raise self.error
         lowered = text.lower()
-        matched = [s for s in job.skill_list if s.lower() in lowered]
-        return {
+        flask_dev = "flask" in lowered
+        evidence = []
+        for skill in job.skill_list:
+            if skill.lower() in lowered:
+                level = "proven" if flask_dev and skill.lower() in ("python", "flask") else "listed"
+                evidence.append({"skill": skill, "level": level,
+                                 "evidence": ["Project: Booking API"] if level == "proven" else ["Skills section"]})
+        profile = {
             "name": "Arjun Mehta", "email": "arjun@example.com", "phone": "+91 90000 00000",
-            "summary": "Backend developer." if "flask" in lowered else "Frontend developer.",
-            "skills": ["Python", "Flask"] if "flask" in lowered else ["React"],
+            "summary": "Backend developer." if flask_dev else "Frontend developer.",
+            "skills": ["Python", "Flask"] if flask_dev else ["React"],
             "experience": [{"role": "Intern", "organisation": "Zentrix", "duration": "6 months", "highlights": ["Built APIs"]}],
             "education": [{"degree": "B.E. CSE", "institution": "Anna University", "year": "2026", "score": "8.4"}],
-            "projects": ["Booking API"], "certifications": [], "total_experience_years": 0.5,
-            "matched_skills": matched, "missing_skills": [s for s in job.skill_list if s not in matched],
+            "projects": ([{"name": "Booking API", "description": "REST API for event bookings",
+                           "tech_stack": ["Flask", "PostgreSQL"], "outcome": "500+ bookings"}] if flask_dev else
+                         [{"name": "Recipe Finder", "description": "Search app for recipes",
+                           "tech_stack": ["React"], "outcome": ""}]),
+            "certifications": [], "total_experience_years": 0.5, "skill_evidence": evidence,
         }
+        return normalise_profile(profile, job.skill_list)
 
     def embed(self, text):
         self.embed_calls += 1

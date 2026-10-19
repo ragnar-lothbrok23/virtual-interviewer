@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import field %}
+{% block title %}Edit {{ job.title }} · Virtual Interviewer{% endblock %}
+{% block content %}
+<a href="{{ url_for('hr.job_detail', job_id=job.id) }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> {{ job.title }}</a>
+<div class="row justify-content-center mt-2">
+  <div class="col-lg-8">
+    <div class="card shadow-sm"><div class="card-body p-4">
+      <h4 class="mb-1">Edit job</h4>
+      {% if active %}
+      <div class="alert alert-info small">
+        <i class="bi bi-info-circle me-1"></i>This job has <strong>{{ active }}</strong> active applicant(s).
+        Changing the <strong>required skills</strong> re-analyses every applicant (one AI request each);
+        changing only the title or description re-scores them without new AI analysis.
+        Decisions you've already made (shortlisted / rejected) are kept.
+      </div>
+      {% endif %}
+      <form method="post" novalidate>
+        {{ form.hidden_tag() }}
+        {{ field(form.title) }}
+        {{ field(form.skills) }}
+        {{ field(form.description) }}
+        {{ field(form.closes_at, help="Time zone: " ~ config.APP_TIMEZONE ~ ". Leave empty for no deadline.") }}
+        <div class="d-flex gap-2">
+          {{ form.submit(class="btn btn-primary") }}
+          <a href="{{ url_for('hr.job_detail', job_id=job.id) }}" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+      </form>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

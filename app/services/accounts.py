@@ -2,7 +2,6 @@
 import json
 import tempfile
 import zipfile
-from pathlib import Path
 
 from flask import current_app
 
@@ -63,24 +62,32 @@ def send_password_changed_notice(user):
 
 
 def export_user_data(user):
-    """Builds a ZIP with the user's data (JSON) and their uploaded resumes. Returns the ZIP path (temp file)."""
-    upload_dir = Path(current_app.config["UPLOAD_FOLDER"])
+    """Builds a ZIP with the user's data (JSON) and their uploaded resumes (decrypted). Returns the ZIP path."""
+    from . import storage
+    from .analysis import resume_file_name
+
+    def iso(value):
+        return value.isoformat() if value else None
+
     data = {
         "account": {
-            "name": user.name, "email": user.email, "role": user.role,
-            "created_at": user.created_at.isoformat() if user.created_at else None,
-            "email_verified_at": user.email_verified_at.isoformat() if user.email_verified_at else None,
-            "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
-            "consent_version": user.consent_version,
-            "consent_at": user.consent_at.isoformat() if user.consent_at else None,
+            "name": user.name, "email": user.email, "role": user.role, "created_at": iso(user.created_at),
+            "email_verified_at": iso(user.email_verified_at), "last_login_at": iso(user.last_login_at),
+            "consent_version": user.consent_version, "consent_at": iso(user.consent_at),
+            "email_preferences": user.notification_prefs or {},
         },
         "applications": [
             {
-                "job_title": a.job.title, "applied_at": a.created_at.isoformat(), "status": a.status,
-                "match_score": a.match_score, "similarity": a.similarity, "resume_file": f"resumes/{a.id}-{a.resume_original_name}",
+                "job_title": a.job.title, "applied_at": iso(a.created_at), "status": a.status,
+                "withdrawn_at": iso(a.withdrawn_at), "match_score": a.match_score, "similarity": a.similarity,
+                "analysis_status": a.analysis_status, "resume_file": f"resumes/{a.id}-{resume_file_name(a)}",
                 "parsed_resume": a.parsed, "resume_text": a.resume_text,
             }
             for a in user.applications
+        ],
+        "notifications": [
+            {"created_at": iso(n.created_at), "title": n.title, "body": n.body, "read_at": iso(n.read_at)}
+            for n in user.notifications
         ],
     }
     with tempfile.NamedTemporaryFile(prefix="vi-export-", suffix=".zip", delete=False) as tmp:
@@ -88,16 +95,18 @@ def export_user_data(user):
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("my_data.json", json.dumps(data, indent=2, ensure_ascii=False))
         for a in user.applications:
-            file = upload_dir / a.resume_path
-            if file.exists():
-                zf.write(file, f"resumes/{a.id}-{a.resume_original_name}")
+            try:
+                zf.writestr(f"resumes/{a.id}-{resume_file_name(a)}", storage.read_resume(a.resume_path))
+            except storage.StorageError as e:
+                current_app.logger.warning("Export: resume for application %s unavailable: %s", a.id, e)
     return path
 
 
 def delete_user_account(user, actor=None, reason="self-service"):
     """Permanently deletes the user, their applications and uploaded files. The audit log keeps the email."""
-    upload_dir = Path(current_app.config["UPLOAD_FOLDER"])
-    files = [upload_dir / a.resume_path for a in user.applications]
+    from . import storage
+
+    files = [a.resume_path for a in user.applications]
     audit("account.deleted", target=user, actor=actor, reason=reason, applications=len(files))
     # Keep audit entries (they store the email) but drop the link to the deleted row
     AuditLog.query.filter(AuditLog.actor_id == user.id).update({"actor_id": None}, synchronize_session=False)
@@ -106,5 +115,5 @@ def delete_user_account(user, actor=None, reason="self-service"):
     db.session.flush()
     db.session.delete(user)
     db.session.commit()
-    for file in files:
-        file.unlink(missing_ok=True)
+    for name in files:
+        storage.delete_resume(name)

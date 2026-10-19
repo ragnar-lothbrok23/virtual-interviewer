@@ -36,7 +36,18 @@ class BaseConfig:
 
     UPLOAD_FOLDER = Path(os.getenv("UPLOAD_FOLDER", BASE_DIR / "uploads"))
     MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5 MB resume uploads
+    MAX_DOCX_UNCOMPRESSED = 50 * 1024 * 1024  # reject "zip bombs" disguised as DOCX
     SHORTLIST_THRESHOLD = float(os.getenv("SHORTLIST_THRESHOLD", "60"))  # match score (0-100) for auto-shortlisting
+    ANALYSIS_RETRIES = 3  # automatic retries of a failed resume analysis (temporary AI errors only)
+    ANALYSIS_RETRY_DELAY = 30  # seconds
+
+    # Stored resumes are encrypted with AES-256-GCM. Format: "<id>:<base64 32-byte key>", comma-separated;
+    # the FIRST key encrypts new files, the others can still decrypt older files (key rotation).
+    # Generate one:  venv\Scripts\flask --app run generate-encryption-key
+    FILE_ENCRYPTION_KEYS = os.getenv("FILE_ENCRYPTION_KEYS", "").strip()
+
+    # Times are stored in UTC and shown / entered in this timezone
+    APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Kolkata")
 
     # Sessions and cookies
     SESSION_COOKIE_HTTPONLY = True
@@ -130,6 +141,9 @@ class TestingConfig(BaseConfig):
     SHORTLIST_THRESHOLD = 60.0
     GEMINI_MODEL = "gemini-test-model"
     GEMINI_EMBED_MODEL = "gemini-test-embedding"
+    FILE_ENCRYPTION_KEYS = "t1:dGVzdC1rZXktMzItYnl0ZXMtZm9yLWFlcy1nY20hISE="  # fixed 32-byte test key (b'test-key-32-bytes-for-aes-gcm!!!')
+    APP_TIMEZONE = "Asia/Kolkata"
+    ANALYSIS_RETRY_DELAY = 0
 
 
 class ProductionConfig(BaseConfig):
@@ -158,6 +172,8 @@ class ProductionConfig(BaseConfig):
             problems.append("MAIL_USERNAME and MAIL_APP_PASSWORD must be set for gmail_smtp")
         if cls.MAIL_REDIRECT_TO:
             problems.append("MAIL_REDIRECT_TO must be empty in production (it would hide every real email)")
+        if not cls.FILE_ENCRYPTION_KEYS:
+            problems.append("FILE_ENCRYPTION_KEYS must be set (stored resumes are encrypted)")
         if problems:
             raise RuntimeError("Invalid production configuration:\n  - " + "\n  - ".join(problems))
 

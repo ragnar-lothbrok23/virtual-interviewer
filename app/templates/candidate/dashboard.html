@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import score_bar, status_badge %}
+{% from "_macros.html" import analysis_cell, status_badge %}
 {% block title %}My dashboard · Virtual Interviewer{% endblock %}
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
@@ -20,7 +20,7 @@
         {% for a in applications %}
         <tr>
           <td class="fw-semibold">{{ a.job.title }}</td>
-          <td>{{ score_bar(a.match_score) }}</td>
+          <td>{{ analysis_cell(a) }}</td>
           <td>{{ status_badge(a) }}</td>
           <td class="small text-muted">{{ a.created_at.strftime('%d %b %Y') }}</td>
           <td class="text-end"><a href="{{ url_for('candidate.application', app_id=a.id) }}" class="btn btn-sm btn-outline-primary">View</a></td>

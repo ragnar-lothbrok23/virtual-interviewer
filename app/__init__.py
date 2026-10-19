@@ -73,6 +73,9 @@ def create_app(config_class=None):
     app.register_blueprint(admin_bp)
     app.register_blueprint(notifications_bp)
 
+    from .services.timeutil import register_filters
+
+    register_filters(app)
     register_cli(app)
     app.logger.info("App started (env=%s, db=%s)", config_class.ENV_NAME, db_kind(app))
     return app
@@ -169,6 +172,42 @@ def register_cli(app):
         log.status, log.sent_at = EmailLog.STATUS_SENT, utcnow()
         db.session.commit()
         click.echo(f"Test email sent to {message['to']} via {backend}.")
+
+    @app.cli.command("generate-encryption-key")
+    @click.option("--key-id", default=None, help="Short id for the key (default: random).")
+    def generate_encryption_key(key_id):
+        """Print a new FILE_ENCRYPTION_KEYS entry. To rotate, put it FIRST and keep the old entries after it."""
+        from .services.storage import generate_key_entry
+
+        click.echo(generate_key_entry(key_id))
+
+    @app.cli.command("encrypt-existing-resumes")
+    def encrypt_existing_resumes():
+        """Encrypt resume files uploaded before encryption existed (safe to run more than once)."""
+        from pathlib import Path
+
+        from .models import Application
+        from .services import storage
+
+        folder = Path(app.config["UPLOAD_FOLDER"])
+        done = skipped = missing = 0
+        for a in Application.query.all():
+            path = folder / Path(a.resume_path).name
+            if not path.exists():
+                missing += 1
+                continue
+            blob = path.read_bytes()
+            if storage.is_encrypted(blob):
+                skipped += 1
+                continue
+            kind = a.resume_kind or path.suffix.lstrip(".").lower() or "pdf"
+            a.resume_path = storage.save_resume(blob, kind)
+            a.resume_kind = kind
+            a.resume_sha256 = a.resume_sha256 or storage.sha256(blob)
+            db.session.commit()
+            path.unlink()
+            done += 1
+        click.echo(f"Encrypted {done} file(s); {skipped} already encrypted; {missing} missing.")
 
     @app.cli.command("queue-check")
     @click.option("--timeout", default=15, help="Seconds to wait for the worker.")

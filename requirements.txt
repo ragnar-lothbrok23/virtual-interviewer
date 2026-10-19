@@ -11,6 +11,8 @@ Flask-Limiter==4.1.1
 flask-talisman==1.1.0
 email-validator==2.3.0
 python-dotenv==1.2.4
+cryptography==50.0.2  # AES-256-GCM encryption of stored resumes
+tzdata==2026.5  # timezone database (Windows has none built in)
 
 # Databases and background jobs
 psycopg[binary]==3.3.6

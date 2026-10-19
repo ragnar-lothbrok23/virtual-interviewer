@@ -3,12 +3,26 @@
 {%- endmacro %}
 
 {% macro score_bar(score, height=8) %}
+{% if score is none %}
+  <span class="small text-muted"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Analysing…</span>
+{% else %}
 <div class="d-flex align-items-center gap-2">
   <div class="progress flex-grow-1" style="height: {{ height }}px; min-width: 80px;">
     <div class="progress-bar bg-{{ score_color(score) }}" style="width: {{ score }}%"></div>
   </div>
   <span class="fw-semibold small" style="min-width: 3ch;">{{ score|round|int }}</span>
 </div>
+{% endif %}
+{% endmacro %}
+
+{% macro analysis_cell(a) %}
+{% if a.analysis_status == 'failed' %}
+  <span class="badge text-bg-danger" title="{{ a.analysis_error or '' }}">Analysis failed</span>
+{% elif a.is_analysing or a.match_score is none %}
+  <span class="small text-muted"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Analysing…</span>
+{% else %}
+  {{ score_bar(a.match_score) }}
+{% endif %}
 {% endmacro %}
 
 {% macro status_badge(a) %}
@@ -19,7 +33,28 @@
 {% for s in skills %}<span class="badge rounded-pill text-bg-{{ color }} fw-normal me-1 mb-1">{{ s }}</span>{% else %}<span class="text-muted small">None</span>{% endfor %}
 {% endmacro %}
 
-{% macro match_summary(a) %}
+{% macro evidence_table(summary) %}
+<div class="d-flex flex-wrap gap-3 small mb-2">
+  <span><span class="badge text-bg-success">{{ summary.proven }}</span> proven in projects / experience</span>
+  <span><span class="badge text-bg-warning">{{ summary.listed }}</span> only listed</span>
+  <span><span class="badge text-bg-danger">{{ summary.missing }}</span> missing</span>
+</div>
+<div class="small text-muted mb-2">Skill coverage {{ summary.coverage_pct }}% · proven {{ summary.proven_pct }}% (supporting information; the match score is the semantic similarity)</div>
+<ul class="list-group list-group-flush small">
+  {% for e in summary.evidence %}
+  <li class="list-group-item px-0 d-flex gap-2">
+    {% if e.level == 'proven' %}<i class="bi bi-patch-check-fill text-success" title="Proven"></i>
+    {% elif e.level == 'listed' %}<i class="bi bi-dash-circle text-warning" title="Listed only"></i>
+    {% else %}<i class="bi bi-x-circle text-danger" title="Missing"></i>{% endif %}
+    <div><span class="fw-semibold">{{ e.skill }}</span>
+      {% if e.evidence %}<div class="text-muted">{{ e.evidence|join(' · ') }}</div>{% elif e.level == 'missing' %}<div class="text-muted">No evidence in the resume</div>{% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+
+{% macro match_summary(a, summary=None) %}
 <div class="card shadow-sm mb-3"><div class="card-body">
   <div class="d-flex justify-content-between align-items-start mb-2">
     <div>
@@ -28,12 +63,25 @@
     </div>
     {{ status_badge(a) }}
   </div>
-  <div class="display-5 fw-bold text-{{ score_color(a.match_score) }}">{{ a.match_score|round|int }}<span class="fs-5 text-muted">/100</span></div>
-  {{ score_bar(a.match_score, 10) }}
-  <div class="small text-muted mt-1">Semantic similarity (cosine): {{ '%.3f'|format(a.similarity) }}</div>
-  <hr>
-  <div class="mb-2"><div class="small fw-semibold mb-1">Matched skills ({{ a.parsed.matched_skills|length }}/{{ a.job.skill_list|length }})</div>{{ skill_chips(a.parsed.matched_skills, 'success') }}</div>
-  <div><div class="small fw-semibold mb-1">Missing skills</div>{{ skill_chips(a.parsed.missing_skills, 'danger') }}</div>
+  {% if a.is_analysed %}
+    <div class="display-5 fw-bold text-{{ score_color(a.match_score) }}">{{ a.match_score|round|int }}<span class="fs-5 text-muted">/100</span></div>
+    {{ score_bar(a.match_score, 10) }}
+    <div class="small text-muted mt-1">Semantic similarity (cosine): {{ '%.3f'|format(a.similarity) }}</div>
+    <hr>
+    {% if summary %}
+      {{ evidence_table(summary) }}
+    {% else %}
+      <div class="mb-2"><div class="small fw-semibold mb-1">Matched skills ({{ a.parsed.matched_skills|length }}/{{ a.job.skill_list|length }})</div>{{ skill_chips(a.parsed.matched_skills, 'success') }}</div>
+      <div><div class="small fw-semibold mb-1">Missing skills</div>{{ skill_chips(a.parsed.missing_skills, 'danger') }}</div>
+    {% endif %}
+  {% elif a.analysis_status == 'failed' %}
+    <div class="alert alert-danger small mb-0"><i class="bi bi-exclamation-triangle me-1"></i>The resume couldn't be analysed: {{ a.analysis_error }}</div>
+  {% else %}
+    <div class="d-flex align-items-center gap-2 py-3 text-muted" id="analysing-indicator">
+      <div class="spinner-border text-primary" role="status"></div>
+      <span>Analysing the resume… this usually takes 10–20 seconds.</span>
+    </div>
+  {% endif %}
 </div></div>
 {% endmacro %}
 
@@ -59,15 +107,24 @@
     </div>
   {% else %}<p class="small text-muted">None listed</p>{% endfor %}
 
+  <h6 class="text-uppercase small text-muted fw-semibold mt-3">Projects</h6>
+  {% for pr in p.projects %}
+    {% if pr is string %}
+      <div class="small mb-2">{{ pr }}</div>
+    {% else %}
+      <div class="mb-2">
+        <div class="fw-semibold small">{{ pr.name }}</div>
+        {% if pr.description %}<div class="small">{{ pr.description }}</div>{% endif %}
+        {% if pr.tech_stack %}<div class="mt-1">{{ skill_chips(pr.tech_stack, 'light border') }}</div>{% endif %}
+        {% if pr.outcome %}<div class="small text-success"><i class="bi bi-graph-up-arrow me-1"></i>{{ pr.outcome }}</div>{% endif %}
+      </div>
+    {% endif %}
+  {% else %}<p class="small text-muted">None listed</p>{% endfor %}
+
   <h6 class="text-uppercase small text-muted fw-semibold mt-3">Education</h6>
   {% for e in p.education %}
     <div class="small mb-1"><span class="fw-semibold">{{ e.degree }}</span> · {{ e.institution }}{% if e.year %} · {{ e.year }}{% endif %}{% if e.score %} · {{ e.score }}{% endif %}</div>
   {% else %}<p class="small text-muted">None listed</p>{% endfor %}
-
-  {% if p.projects %}
-  <h6 class="text-uppercase small text-muted fw-semibold mt-3">Projects</h6>
-  <ul class="small ps-3 mb-0">{% for pr in p.projects %}<li>{{ pr }}</li>{% endfor %}</ul>
-  {% endif %}
 
   {% if p.certifications %}
   <h6 class="text-uppercase small text-muted fw-semibold mt-3">Certifications</h6>

@@ -29,8 +29,8 @@
       <div class="list-group list-group-flush">
         {% for job in jobs %}
         <a href="{{ url_for('hr.job_detail', job_id=job.id) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-          <span>{{ job.title }} {% if not job.is_open %}<span class="badge text-bg-secondary ms-1">Closed</span>{% endif %}</span>
-          <span class="badge text-bg-primary rounded-pill">{{ job.applications|length }} applicant{{ 's' if job.applications|length != 1 }}</span>
+          <span>{{ job.title }} {% if not job.is_accepting %}<span class="badge text-bg-secondary ms-1">{{ job.state_label }}</span>{% endif %}</span>
+          {% set n = job.applications|rejectattr('is_withdrawn')|list|length %}<span class="badge text-bg-primary rounded-pill">{{ n }} applicant{{ 's' if n != 1 }}</span>
         </a>
         {% endfor %}
       </div>

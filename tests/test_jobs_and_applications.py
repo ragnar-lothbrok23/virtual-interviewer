@@ -101,8 +101,9 @@ def test_pdf_resume_is_accepted(app, candidate_client, jobs, fake_gemini):
 @pytest.mark.parametrize("content, filename, message", [
     (b"plain text", "cv.txt", b"Only PDF or DOCX"),
     (b"MZ\x90\x00 fake exe", "cv.exe", b"Only PDF or DOCX"),
-    (b"not really a pdf", "cv.pdf", b"Could not read the file"),
-    (b"", "empty.docx", b"Could not read the file"),
+    (b"not really a pdf", "cv.pdf", b"look like a PDF or Word"),
+    (b"", "empty.docx", b"The file is empty"),
+    (b"%PDF-1.4 broken body", "cv.pdf", b"Could not read the file"),
 ])
 def test_bad_uploads_are_rejected_cleanly(app, candidate_client, jobs, fake_gemini, content, filename, message):
     response = apply(candidate_client, jobs["Python Backend Developer"], content=content, filename=filename)
@@ -124,13 +125,21 @@ def test_oversized_upload_rejected(candidate_client, jobs):
     assert response.status_code == 413
 
 
-def test_gemini_failure_shows_message_and_saves_nothing(app, candidate_client, jobs, fake_gemini):
+def test_gemini_failure_keeps_application_and_allows_retry(app, candidate_client, jobs, fake_gemini):
     fake_gemini.error = GeminiError("The AI service has reached its usage limit for now. Please try again later.")
     response = apply(candidate_client, jobs["Python Backend Developer"])
-    assert b"usage limit" in response.data
+    assert b"be analysed" in response.data and b"usage limit" in response.data
+    assert b"Try the analysis again" in response.data
     with app.app_context():
-        assert Application.query.count() == 0
-    assert list(app.config["UPLOAD_FOLDER"].iterdir()) == []
+        a = Application.query.one()
+        assert a.analysis_status == "failed" and a.match_score is None
+        app_id = a.id
+    assert len(list(app.config["UPLOAD_FOLDER"].iterdir())) == 1  # file kept for the retry
+    fake_gemini.error = None
+    response = candidate_client.post(f"/candidate/applications/{app_id}/retry", follow_redirects=True)
+    assert b"Match score for" in response.data
+    with app.app_context():
+        assert db.session.get(Application, app_id).analysis_status == "done"
 
 
 def test_reapplying_redirects_to_existing_application(app, candidate_client, jobs, fake_gemini):
