@@ -127,6 +127,8 @@ enables secure cookies and HTTPS enforcement.
 - HR sees every score, the quotes and strengths/gaps per answer, an interview NLP summary, and can re-score.
 - Calibration with real Gemini: strong / medium / weak spoken answers scored 87.5 / 53.5 / 30.9.
 
+Agreed but not yet implemented improvements are tracked in [docs/ENHANCEMENTS.md](docs/ENHANCEMENTS.md).
+
 ## Roles and accounts
 
 | Role | How the account is created | Can do |

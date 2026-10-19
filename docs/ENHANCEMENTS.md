@@ -1,0 +1,65 @@
+# Enhancement backlog
+
+Planned improvements that are agreed but not yet implemented. Each item states whether it preserves the base
+paper's methodology:
+
+- **A — methodology-preserving**: reliability, validation, performance; valid scores don't change.
+- **B — methodology-compatible**: adds information alongside the paper's method without altering it.
+- **C — methodology-changing**: alters the paper's method; only as a documented experiment against the baseline.
+
+Constraint for every item: **no additional AI calls per answer** — the wait between interview questions must not grow.
+
+---
+
+## Phase 7 hardening — answer scoring and adaptive follow-ups (agreed 19 Oct 2026)
+
+| # | Enhancement | Category | Why | Latency |
+|---|---|---|---|---|
+| 1 | **Guard similarity against empty / zero / non-finite vectors.** `scoring._cosine` divides by the vector norms; a zero vector produces NaN, which would flow into `similarity_score` and `nlp_score`. Also reject mismatched dimensions. Treat as "unassessable", never as a silent number. | A | Real crash/corruption risk | None |
+| 2 | **Cache the reference answer's embedding** (store it with the reference text and the embedding model name; invalidate when either changes). Today `_similarity` embeds the reference again for every answer. | A | Removes one embedding call per answer, so the follow-up decision is faster | **Lower** |
+| 3 | **Evidence quotes tolerant of punctuation and case** (normalise both sides before matching, still rejecting invented text), and **tie each quote to the criterion it supports** (relevance / accuracy / fluency / clarity). A quote existing in the transcript does not prove the claim is correct — keep that distinction in the UI wording. | A | Real quotes are currently rejected when commas differ | None |
+| 4 | **Answer verdict and assessment confidence in the existing rubric call**: `correct`, `partially_correct`, `incorrect`, `off_topic`, `dont_know`, `no_answer`, `clarification_request`, plus confidence (high/medium/low). Low confidence or unassessable answers are flagged **"needs human review"** for HR instead of being presented as certain. Covers most edge cases (alternative terminology, short-but-correct, long-but-wrong, keyword repetition, self-correction, contradictions within an answer, code/SQL in answers). Prompt must say: don't equate length with knowledge; don't penalise accent, grammar or concise answers; similarity to the reference is not correctness. | B | Explainability and fairness; formula unchanged | None (same call) |
+| 5 | **Validate generated follow-up questions** before inserting them: non-empty, bounded length, phrased as a question, not identical/near-identical to the original question, does not contain the reference answer. On failure, skip the follow-up (interview moves on). | A | Prevents malformed or answer-revealing questions reaching candidates | None |
+| 6 | **Avoid duplicate follow-ups and record why they were asked**: include the remaining planned questions in the follow-up prompt so it doesn't ask something coming later; return a `target_concept` (the missing concept/misconception probed) stored with the follow-up and shown to HR. | B | Relevance and traceability | None (same call) |
+| 7 | **Remaining-time check before adding a follow-up**: skip it if `prep + answer time` would exceed the interview's hard deadline. | A | Prevents interviews timing out because of a late follow-up | None |
+| 8 | **Explicit failure instead of silent zeros** for missing, null, NaN or infinite score components. Zero remains correct only for genuinely empty/unassessable answers (`no_answer`). Valid scores are never altered by these checks. | A | Data integrity | None |
+| 9 | **Label paper values vs implementation decisions** in config and documentation (see table below); keep every implementation parameter configurable so a paper-baseline configuration stays identifiable for evaluation. | Docs | Research honesty | None |
+
+Tests required for each item: unit tests for the edge cases (zero/NaN vectors, dimension mismatch, punctuation in
+quotes, malformed follow-ups, insufficient time), fake-AI tests for each verdict, a cache-invalidation test when HR
+edits a reference answer, and the existing suites on SQLite, PostgreSQL and the browser test.
+
+### Paper requirement vs implementation decision
+
+| Item | Base paper | Current implementation |
+|---|---|---|
+| Follow-up when a technical answer's **semantic similarity is low** | Specified (§3.3) | Implemented as specified |
+| NLP components: content relevance, fluency, domain accuracy; speech clarity and speed | Specified (§3.4) | Implemented per answer |
+| Weights inside the NLP score (30% relevance, 30% accuracy, 20% similarity, 20% fluency) | **Not specified** | Implementation decision (`NLP_WEIGHTS`) |
+| Follow-up threshold (similarity score < 55) | **Not specified** ("low") | Implementation decision (`FOLLOW_UP_THRESHOLD`) |
+| Maximum follow-ups (3), no chaining | **Not specified** | Implementation decision (`MAX_FOLLOW_UPS`) |
+| Decision timeout (45 s) | **Not specified** | Implementation decision (`DECISION_TIMEOUT_SECONDS`) |
+| Final score 0.75 NLP + 0.15 Emotion + 0.10 Context | Specified (§3.4, Eq. 1) | Phase 9 |
+| Turn latency 2.3 s per candidate turn | Reported result (§4.4, GPU server) | Measured in Phase 12; currently ~5–7 s after technical answers, ~1–2 s otherwise |
+
+### Interview format (verified against the paper)
+
+The paper describes a **turn-based, recorded interview analysed in real time** (“the audio and video stream of the
+interview is recorded”, “2.3 s per candidate turn”, “adapting interview questions” depending on performance) and
+states the system is “not confined to a conversation flow”. It does not describe the AI replying, giving hints or
+answering clarification questions. The implementation follows the same turn-based format.
+
+---
+
+## Deliberately not planned (or moved to a later phase)
+
+| Idea | Decision | Reason |
+|---|---|---|
+| Hints / clarification dialogue during the live interview | Not planned | Turns the paper's turn-based interview into a conversational system, which the paper distinguishes itself from |
+| Detecting contradictions with **earlier** answers in real time | Phase 9 | Needs cross-answer context (slower); belongs to the paper's **Context** score, which explicitly includes *consistency* |
+| Full rubric/reference version history with an HR rubric editor | Not planned | Heavy; each answer already stores a snapshot of the reference answer it was scored against |
+| Extra AI calls per answer (second opinions, ensembles, separate classifiers) | Not planned | Doubles latency and quota |
+| Changing weights, threshold or the similarity method | Phase 12 experiment only (Category C) | Must be compared against the paper-baseline configuration |
+| Large evaluation datasets, human-rater agreement | Phase 12 | Evaluation work |
+| Handling embedding-model upgrades beyond storing the model name | Not planned | Model name storage (item 2) is sufficient |
+| Streaming transcription during the answer to reach ~2.3 s per turn | Phase 12/13 consideration | Large architectural change; the paper attributes its latency to a GPU server |
