@@ -487,6 +487,14 @@ class InterviewAnswer(db.Model):
     def is_scored(self):
         return self.score_status == self.SCORE_DONE and self.nlp_score is not None
 
+    @property
+    def is_scoring(self):
+        """Scoring is genuinely in progress (queued recently). Answers recorded before scoring existed have no status,
+        and a job lost to a worker restart stays 'pending' forever; neither should show a spinner."""
+        if self.score_status != self.SCORE_PENDING or self.submitted_at is None:
+            return False
+        return utcnow() - as_utc(self.submitted_at) < timedelta(minutes=10)
+
     interview = db.relationship("Interview", back_populates="answers")
 
     __table_args__ = (db.UniqueConstraint("interview_id", "position", name="uq_interview_answer_position"),)

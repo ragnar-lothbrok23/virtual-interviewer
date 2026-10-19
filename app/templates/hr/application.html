@@ -132,13 +132,15 @@
         </div>
         {% elif ans.score_status == 'failed' %}
           <div class="small text-danger">Scoring failed: {{ ans.score_error }}</div>
-        {% else %}
+        {% elif ans.is_scoring %}
           <div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Scoring…</div>
+        {% else %}
+          <div class="small text-muted">Not scored yet.</div>
         {% endif %}
-        {% if ans.score_status in ('done', 'failed') %}
+        {% if not ans.is_scoring %}
         <form method="post" action="{{ url_for('hr.rescore_answer', answer_id=ans.id) }}" class="mt-1">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-link btn-sm p-0">Re-score</button>
+          <button class="btn btn-link btn-sm p-0">{{ 'Re-score' if ans.score_status in ('done', 'failed') else 'Score now' }}</button>
         </form>
         {% endif %}
       {% elif ans.transcript_status == 'failed' %}
@@ -168,5 +170,6 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-{% if a.is_analysing %}<script nonce="{{ csp_nonce() }}">setTimeout(() => location.reload(), 5000);</script>{% endif %}
+{% set busy = a.is_analysing or (iv and iv.answers|selectattr('is_scoring')|list) %}
+{% if busy %}<script nonce="{{ csp_nonce() }}">setTimeout(() => location.reload(), 6000);</script>{% endif %}
 {% endblock %}

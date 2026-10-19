@@ -260,3 +260,27 @@ def test_scoring_prompt_carries_safety_rules(app, monkeypatch):
 
 
 ORIGINAL_SCORE = gemini.score_answer
+
+
+def test_unscored_or_stuck_answers_offer_score_button_not_spinner(app, room, ai, login):
+    started(room)
+    answer_question(room, 0)
+    a = answer_row(app, 0)
+    with app.app_context():
+        row = db.session.get(InterviewAnswer, a.id)
+        row.score_status = None  # recorded before scoring existed
+        db.session.commit()
+    hr = login("hr@test.com")
+    app_id = get(app, Interview, room.id).application_id
+    page = hr.get(f"/hr/applications/{app_id}").get_data(as_text=True)
+    assert "Not scored yet" in page and "Score now" in page and "Scoring…" not in page
+    with app.app_context():
+        row = db.session.get(InterviewAnswer, a.id)
+        row.score_status = "pending"  # queued 11 minutes ago and lost (e.g. the worker was restarted)
+        db.session.commit()
+    room.frozen.tick(11 * 60)
+    hr = login("hr@test.com")
+    page = hr.get(f"/hr/applications/{app_id}").get_data(as_text=True)
+    assert "Score now" in page and "Scoring…" not in page
+    hr.post(f"/hr/answers/{a.id}/rescore")
+    assert answer_row(app, 0).is_scored
