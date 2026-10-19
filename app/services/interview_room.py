@@ -178,7 +178,8 @@ def ask(interview, position):
     if answer is None:
         answer = InterviewAnswer(interview_id=interview.id, position=position, question_text=q["text"],
                                  category=q["category"], answer_seconds=q["answer_seconds"], asked_at=utcnow(),
-                                 is_follow_up=bool(q.get("follow_up")), reference_answer=q.get("reference"))
+                                 is_follow_up=bool(q.get("follow_up")), reference_answer=q.get("reference"),
+                                 follow_up_target=q.get("target"))
         db.session.add(answer)
     elif not answer.is_submitted:
         answer.attempts += 1

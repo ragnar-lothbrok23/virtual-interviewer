@@ -248,7 +248,8 @@ def test_scoring_prompt_carries_safety_rules(app, monkeypatch):
         def generate_content(self, **kw):
             captured.update(kw)
             return SimpleNamespace(parsed=gemini.AnswerScore(
-                relevance=5, accuracy=5, fluency=5, clarity=5, summary="s", strengths=[], gaps=[], evidence=[]))
+                relevance=5, accuracy=5, fluency=5, clarity=5, summary="s", strengths=[], gaps=[], evidence=[],
+                verdict="partially_correct", confidence="medium"))
 
     monkeypatch.setattr(gemini, "score_answer", ORIGINAL_SCORE)
     monkeypatch.setattr(gemini, "_client", lambda: SimpleNamespace(models=Models()))
@@ -257,6 +258,9 @@ def test_scoring_prompt_carries_safety_rules(app, monkeypatch):
                             {"word_count": 5, "words_per_minute": 100, "filler_count": 0})
     prompt = captured["contents"]
     assert "untrusted" in prompt and prompt.count("</transcript>") == 1
+    # fairness rules travel with every rubric call
+    assert "Length is not knowledge" in prompt and "never penalise a concise answer" in prompt
+    assert "resembling the reference wording does not make an answer correct" in prompt
 
 
 ORIGINAL_SCORE = gemini.score_answer

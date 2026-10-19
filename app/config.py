@@ -37,7 +37,7 @@ class BaseConfig:
     UPLOAD_FOLDER = Path(os.getenv("UPLOAD_FOLDER", BASE_DIR / "uploads"))
     MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5 MB resume uploads
     MAX_DOCX_UNCOMPRESSED = 50 * 1024 * 1024  # reject "zip bombs" disguised as DOCX
-    SHORTLIST_THRESHOLD = float(os.getenv("SHORTLIST_THRESHOLD", "60"))  # match score (0-100) for auto-shortlisting
+    SHORTLIST_THRESHOLD = float(os.getenv("SHORTLIST_THRESHOLD", "60"))  # [paper] match score (0-100) to shortlist
     ANALYSIS_RETRIES = 3  # automatic retries of a failed resume analysis (temporary AI errors only)
     ANALYSIS_RETRY_DELAY = 30  # seconds
 
@@ -66,13 +66,16 @@ class BaseConfig:
     MAX_INTEGRITY_EVENTS = 500        # per interview, so a misbehaving client can't flood the table
     GEMINI_TRANSCRIBE_MODEL = os.getenv("GEMINI_TRANSCRIBE_MODEL", "").strip()  # empty = use GEMINI_MODEL
 
-    # Answer scoring and adaptive questions (paper Sections 3.2-3.4)
-    FOLLOW_UP_THRESHOLD = 55          # technical answers scoring below this (similarity, 0-100) get a follow-up
-    MAX_FOLLOW_UPS = 3                # per interview
-    DECISION_TIMEOUT_SECONDS = 45     # if deciding on a follow-up takes longer, the interview just moves on
-    ANSWER_SIMILARITY_FLOOR = 0.55    # cosine similarity (answer vs reference answer) mapped onto 0-100
-    ANSWER_SIMILARITY_CEIL = 0.85
-    # Weights of the per-answer NLP score (content relevance, domain accuracy, fluency + semantic similarity)
+    # Answer scoring and adaptive questions (paper Sections 3.2-3.4).
+    # [paper] = value or rule stated in the paper; [impl] = implementation decision where the paper gives no number
+    # (kept configurable so a paper-baseline configuration stays identifiable in evaluation; docs/ENHANCEMENTS.md).
+    # The rule "follow up a technical answer with low semantic similarity" is [paper]; its numbers below are [impl].
+    FOLLOW_UP_THRESHOLD = 55          # [impl] technical answers below this similarity score (0-100) get a follow-up
+    MAX_FOLLOW_UPS = 3                # [impl] per interview; follow-ups never chain
+    DECISION_TIMEOUT_SECONDS = 45     # [impl] if deciding on a follow-up takes longer, the interview just moves on
+    ANSWER_SIMILARITY_FLOOR = 0.55    # [impl] cosine similarity (answer vs reference answer) mapped onto 0-100
+    ANSWER_SIMILARITY_CEIL = 0.85     # [impl]
+    # [paper] components: content relevance, domain accuracy, fluency + semantic similarity; [impl] their weights
     NLP_WEIGHTS = {"relevance": 0.30, "accuracy": 0.30, "similarity": 0.20, "fluency": 0.20}
     GEMINI_INLINE_MEDIA_LIMIT = 18 * 1024 * 1024  # larger recordings go through the Gemini Files API
 

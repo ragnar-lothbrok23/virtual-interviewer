@@ -1,6 +1,6 @@
 # Enhancement backlog
 
-Planned improvements that are agreed but not yet implemented. Each item states whether it preserves the base
+Agreed improvements and their status. Each item states whether it preserves the base
 paper's methodology:
 
 - **A — methodology-preserving**: reliability, validation, performance; valid scores don't change.
@@ -11,7 +11,25 @@ Constraint for every item: **no additional AI calls per answer** — the wait be
 
 ---
 
-## Phase 7 hardening — answer scoring and adaptive follow-ups (agreed 19 Oct 2026)
+## Phase 7 hardening — answer scoring and adaptive follow-ups (agreed and implemented 19 Oct 2026)
+
+**Status: all nine items done** (tests in `tests/test_scoring_hardening.py`). Where each lives:
+
+| # | Implementation |
+|---|---|
+| 1 | `services/vectors.safe_cosine`, used by answer scoring and resume matching; unusable embeddings fail the answer with a reason (resume analysis retries and rebuilds the job embedding) |
+| 2 | `services/vectors.embed_cached` + `EmbeddingCache` table, keyed by sha256(model + text) |
+| 3 | `scoring.normalise_text`: whole-word, punctuation/case-insensitive quote matching; each quote stores its `criterion`; HR wording: quotes show what was said, not that it is correct |
+| 4 | `AnswerScore.verdict` / `confidence` + fairness rules in the rubric prompt; `InterviewAnswer.verdict`, `confidence`, `needs_review` (low confidence, clarification request, or no assessable answer despite speech) |
+| 5 | `scoring.follow_up_problem`; rejected follow-ups are logged as `follow_up_skipped` with the reason |
+| 6 | Upcoming planned questions passed to `generate_follow_up`; `target_concept` stored as `InterviewAnswer.follow_up_target`, shown to HR as "Probes: ..." |
+| 7 | `scoring.has_time_for_follow_up` (follow-up + all remaining questions, each prep + answer + grace) checked before any AI call |
+| 8 | `scoring.rubric_value`: missing / non-numeric / NaN / out-of-range components are a retryable malformed response, never clamped or zeroed; zeros only for genuinely empty answers |
+| 9 | `[paper]` / `[impl]` labels in `config.py` and `services/resume.py`; HR page no longer attributes the weights to the paper |
+
+Real Gemini check (gemini-3.5-flash-lite): strong answer → correct, long keyword-stuffed wrong answer → incorrect (A1), "I don't know" → dont_know, "could you repeat the question?" → clarification_request; the generated follow-up avoided a pagination question that was still planned.
+
+### Original backlog
 
 | # | Enhancement | Category | Why | Latency |
 |---|---|---|---|---|

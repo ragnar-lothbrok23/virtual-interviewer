@@ -11,6 +11,7 @@ from . import storage
 from .gemini import GeminiError
 from .notifications import notify, notify_application_received, notify_application_status
 from .scheduling import sync_with_status
+from .vectors import VectorError
 
 
 class UploadError(ValueError):
@@ -130,7 +131,14 @@ def rescore_job(job_id, skills_changed):
         if a.embedding is None or not a.is_analysed:
             continue
         old_status = a.status
-        a.similarity, a.match_score = resume_service.score_against(a.embedding, job)
+        try:
+            a.similarity, a.match_score = resume_service.score_against(a.embedding, job)
+        except VectorError as e:  # unusable stored embedding: analyse this application again from scratch
+            current_app.logger.warning("Application %s needs re-analysis: %s", a.id, e)
+            a.analysis_status, a.analysis_attempts = Application.ANALYSIS_PENDING, 0
+            db.session.commit()
+            queue_analysis(a)
+            continue
         apply_auto_status(a)
         db.session.commit()
         notify_application_status(a, old_status)

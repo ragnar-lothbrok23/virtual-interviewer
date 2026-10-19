@@ -105,6 +105,9 @@ class FakeInterviewAI:
     def __init__(self):
         self.calls = {"reference": 0, "score": 0, "follow_up": 0, "transcribe": 0, "embed": 0}
         self.transcript = "Um, I built REST APIs with Flask and PostgreSQL."
+        self.rubric_overrides = {}  # tests change single rubric fields (verdict, a malformed score, ...)
+        self.follow_up_overrides = {}
+        self.last_upcoming = None
 
     def transcribe(self, media, mime_type):
         self.calls["transcribe"] += 1
@@ -123,16 +126,25 @@ class FakeInterviewAI:
     def score_answer(self, question, category, reference, transcript, job_title, speech):
         self.calls["score"] += 1
         strong = "flask" in transcript.lower()
-        return {"relevance": 9 if strong else 3, "accuracy": 8 if strong else 2, "fluency": 7, "clarity": 8,
-                "summary": "Answer summary.", "strengths": ["Concrete example"] if strong else [],
-                "gaps": [] if strong else ["Missing technical detail"],
-                "evidence": [{"quote": transcript.split(",")[-1].strip(), "note": "key point"},
-                             {"quote": "a sentence that was never said", "note": "invented"}]}
+        rubric = {"relevance": 9 if strong else 3, "accuracy": 8 if strong else 2, "fluency": 7, "clarity": 8,
+                  "summary": "Answer summary.", "strengths": ["Concrete example"] if strong else [],
+                  "gaps": [] if strong else ["Missing technical detail"],
+                  "evidence": [{"quote": transcript.split(",")[-1].strip(), "criterion": "accuracy",
+                                "note": "key point"},
+                               {"quote": "a sentence that was never said", "criterion": "relevance",
+                                "note": "invented"}],
+                  "verdict": "correct" if strong else "partially_correct", "confidence": "high"}
+        rubric.update(self.rubric_overrides)
+        return rubric
 
-    def generate_follow_up(self, question, reference, transcript, job_title):
+    def generate_follow_up(self, question, reference, transcript, job_title, upcoming=()):
         self.calls["follow_up"] += 1
-        return {"question": "Can you explain how you would design a REST endpoint in Flask?",
-                "reference_answer": "Flask route, HTTP methods, JSON, status codes, validation."}
+        self.last_upcoming = list(upcoming)
+        follow_up = {"question": "Can you explain how you would design a REST endpoint in Flask?",
+                     "target_concept": "REST endpoint design",
+                     "reference_answer": "Flask route, HTTP methods, JSON, status codes, validation."}
+        follow_up.update(self.follow_up_overrides)
+        return follow_up
 
 
 @pytest.fixture

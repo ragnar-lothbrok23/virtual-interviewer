@@ -6,17 +6,23 @@ Per answer:
   - Gemini rubric scores (relevance, accuracy, fluency, clarity) with evidence quotes
   - NLP score = weighted mix of relevance, accuracy, similarity and fluency (weights in config.NLP_WEIGHTS)
 Adaptive rule (3.3): a technical answer whose similarity score is below FOLLOW_UP_THRESHOLD gets one focused
-follow-up question, inserted right after it.
+follow-up question, inserted right after it, provided it passes validation and fits before the hard deadline.
+
+Integrity rules: a score is either computed from valid inputs or the answer is marked failed with the reason. Zero is
+only ever stored for a genuinely empty answer; broken embeddings or malformed rubric values never become numbers.
 """
+import math
 import re
+from datetime import timedelta
 
 import numpy as np
 from flask import current_app
 
 from ..extensions import db
-from ..models import Interview, InterviewAnswer, InterviewQuestion, utcnow
+from ..models import Interview, InterviewAnswer, InterviewQuestion, as_utc, utcnow
 from . import gemini
-from .gemini import GeminiError
+from .gemini import VERDICTS, GeminiError
+from .vectors import VectorError, embed_cached, safe_cosine
 
 FILLER_PATTERN = re.compile(r"\b(um+|uh+|erm+|er|ah+|hmm+|you know|i mean)\b", re.IGNORECASE)
 WORD_PATTERN = re.compile(r"[A-Za-z0-9']+")
@@ -44,8 +50,23 @@ def nlp_score(relevance, accuracy, similarity_score, fluency):
                  + w["fluency"] * fluency, 1)
 
 
-def _cosine(a, b):
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+class ScoringError(RuntimeError):
+    """The answer can't be scored from the data we have (not worth retrying automatically)."""
+
+
+def normalise_text(text):
+    """Lower-case words only: punctuation and spacing differences don't matter when matching quotes."""
+    return " ".join(re.sub(r"[^\w']+", " ", (text or "").lower()).split())
+
+
+def rubric_value(rubric, key):
+    """A rubric score (0-10) converted to 0-100. Anything missing or out of range is a malformed response, which is
+    retried rather than clamped or zeroed."""
+    value = rubric.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) \
+            or not 0 <= value <= 10:
+        raise GeminiError(f"Gemini returned an invalid {key} score ({value!r}).", retryable=True)
+    return float(value) * 10
 
 
 # ---------- reference answers ----------
@@ -80,10 +101,11 @@ def fill_missing_references(job_id):
 
 
 def _similarity(answer):
+    """(cosine, 0-100 score). The reference embedding is cached; raises VectorError if an embedding is unusable."""
     reference = ensure_reference(answer)
     if not (answer.transcript or "").strip():
         return 0.0, 0.0
-    sim = _cosine(gemini.embed(answer.transcript), gemini.embed(reference))
+    sim = safe_cosine(gemini.embed(answer.transcript), embed_cached(reference))
     return sim, similarity_to_score(sim)
 
 
@@ -95,6 +117,40 @@ def needs_decision(interview, answer):
             and interview.follow_up_count < current_app.config["MAX_FOLLOW_UPS"])
 
 
+def has_time_for_follow_up(interview, answer):
+    """A follow-up (prep + answer + upload grace) plus every question still planned must fit before the deadline."""
+    if interview.hard_deadline is None:
+        return True
+    cfg = current_app.config
+    per_question = lambda seconds: cfg["PREP_SECONDS"] + seconds + cfg["ANSWER_GRACE_SECONDS"]  # noqa: E731
+    needed = per_question(answer.answer_seconds) + sum(
+        per_question(q["answer_seconds"]) for q in interview.question_plan[answer.position + 1:])
+    return utcnow() + timedelta(seconds=needed) <= as_utc(interview.hard_deadline)
+
+
+def follow_up_problem(follow_up, original_question, reference):
+    """Why a generated follow-up must not be shown to the candidate, or None if it's fine."""
+    question = (follow_up.get("question") or "").strip()
+    if not question:
+        return "empty question"
+    if not 4 <= len(question.split()) <= 40 or len(question) > 300:
+        return "question length out of bounds"
+    if not question.endswith("?"):
+        return "not phrased as a question"
+    if not (follow_up.get("reference_answer") or "").strip():
+        return "no reference answer"
+    asked, original = normalise_text(question), normalise_text(original_question)
+    asked_words, original_words = set(asked.split()), set(original.split())
+    if asked == original or len(asked_words & original_words) / len(asked_words | original_words) >= 0.8:
+        return "repeats the original question"
+    padded = f" {asked} "
+    for text in (reference, follow_up["reference_answer"]):
+        words = normalise_text(text).split()
+        if any(f" {' '.join(words[i:i + 6])} " in padded for i in range(len(words) - 5)):
+            return "reveals the reference answer"
+    return None
+
+
 def decide_follow_up(answer):
     """Called right after transcription while the interview waits. Never raises: on any problem the interview
     simply moves on without a follow-up."""
@@ -103,18 +159,25 @@ def decide_follow_up(answer):
     interview = answer.interview
     if interview.awaiting_decision_since is None:
         return None
-    follow_up = None
+    follow_up = skipped = None
     try:
         if answer.transcript_status == InterviewAnswer.TRANSCRIPT_DONE:
             answer.similarity, answer.similarity_score = _similarity(answer)
             db.session.commit()
             if answer.similarity_score < current_app.config["FOLLOW_UP_THRESHOLD"] and answer.speech_detected:
-                follow_up = gemini.generate_follow_up(answer.question_text, answer.reference_answer,
-                                                      answer.transcript, interview.application.job.title)
+                if not has_time_for_follow_up(interview, answer):
+                    skipped = "not enough time left"
+                else:
+                    upcoming = [q["text"] for q in interview.question_plan[answer.position + 1:]]
+                    candidate = gemini.generate_follow_up(answer.question_text, answer.reference_answer,
+                                                          answer.transcript, interview.application.job.title,
+                                                          upcoming=upcoming)
+                    skipped = follow_up_problem(candidate, answer.question_text, answer.reference_answer)
+                    follow_up = None if skipped else candidate
     except Exception as e:  # any failure (AI, network, bug) must not keep the candidate waiting
         db.session.rollback()
         current_app.logger.warning("Follow-up decision for answer %s skipped: %s", answer.id, e)
-        follow_up = None
+        follow_up, skipped = None, "the answer couldn't be assessed in time"
 
     db.session.refresh(interview)
     if interview.awaiting_decision_since is None or interview.status != Interview.STATUS_IN_PROGRESS:
@@ -123,12 +186,16 @@ def decide_follow_up(answer):
         plan = list(interview.question_plan)
         plan.insert(answer.position + 1, {"text": follow_up["question"], "category": "technical",
                                           "answer_seconds": answer.answer_seconds, "follow_up": True,
-                                          "reference": follow_up["reference_answer"],
+                                          "reference": follow_up["reference_answer"].strip(),
+                                          "target": (follow_up.get("target_concept") or "").strip()[:200] or None,
                                           "follows": answer.position})
         interview.question_plan = plan  # reassign so the JSON change is saved
         interview.follow_up_count += 1
         log_event(interview, "follow_up_added", answer.position,
                   similarity_score=answer.similarity_score)
+    elif skipped:
+        log_event(interview, "follow_up_skipped", answer.position, reason=skipped)
+        current_app.logger.info("Follow-up for answer %s skipped: %s", answer.id, skipped)
     interview.awaiting_decision_since = None
     db.session.commit()
     if interview.current_position >= interview.question_count:
@@ -148,24 +215,46 @@ def score(answer_id):
         metrics["word_count"], metrics["words_per_minute"], metrics["filler_count"])
 
     if not answer.speech_detected or not (answer.transcript or "").strip():
+        # The only case where zeros are stored: there is genuinely nothing to assess
         answer.similarity, answer.similarity_score = 0.0, 0.0
         answer.relevance = answer.accuracy = answer.fluency = answer.clarity = 0.0
         answer.nlp_score = 0.0
+        answer.verdict, answer.confidence, answer.needs_review = "no_answer", "high", False
         answer.feedback = {"summary": "No spoken answer was detected.", "strengths": [], "gaps": ["No answer given"],
                            "evidence": []}
     else:
-        if answer.similarity is None:
-            answer.similarity, answer.similarity_score = _similarity(answer)
+        if answer.similarity is None or answer.similarity_score is None \
+                or not math.isfinite(answer.similarity) or not math.isfinite(answer.similarity_score):
+            try:
+                answer.similarity, answer.similarity_score = _similarity(answer)
+            except VectorError as e:
+                raise ScoringError(f"Semantic similarity couldn't be computed: {e}.") from e
         job = answer.interview.application.job
         rubric = gemini.score_answer(answer.question_text, answer.category, answer.reference_answer,
                                      answer.transcript, job.title, metrics)
-        to100 = lambda v: float(max(0, min(10, v)) * 10)  # noqa: E731
-        answer.relevance, answer.accuracy = to100(rubric["relevance"]), to100(rubric["accuracy"])
-        answer.fluency, answer.clarity = to100(rubric["fluency"]), to100(rubric["clarity"])
-        answer.nlp_score = nlp_score(answer.relevance, answer.accuracy, answer.similarity_score, answer.fluency)
-        # Keep only evidence that really appears in the transcript (guards against invented quotes)
-        transcript = " ".join(answer.transcript.lower().split())
-        evidence = [e for e in rubric["evidence"] if " ".join(e["quote"].lower().split()) in transcript]
+        relevance, accuracy = rubric_value(rubric, "relevance"), rubric_value(rubric, "accuracy")
+        fluency, clarity = rubric_value(rubric, "fluency"), rubric_value(rubric, "clarity")
+        verdict, confidence = rubric.get("verdict"), rubric.get("confidence")
+        if verdict not in VERDICTS or confidence not in ("high", "medium", "low"):
+            raise GeminiError(f"Gemini returned an invalid verdict/confidence ({verdict!r}, {confidence!r}).",
+                              retryable=True)
+        total = nlp_score(relevance, accuracy, answer.similarity_score, fluency)
+        if not math.isfinite(total):
+            raise ScoringError("The NLP score couldn't be computed from the components.")
+        answer.relevance, answer.accuracy, answer.fluency, answer.clarity = relevance, accuracy, fluency, clarity
+        answer.nlp_score = total
+        answer.verdict, answer.confidence = verdict, confidence
+        # Uncertain or unassessable results go to a human instead of being presented as certain
+        answer.needs_review = confidence == "low" or verdict in ("clarification_request", "no_answer")
+        # Keep only evidence that really appears in the transcript (ignoring punctuation and case), so invented
+        # quotes are dropped. A real quote shows what was said; it doesn't prove the statement is correct.
+        transcript = f" {normalise_text(answer.transcript)} "
+        evidence = []
+        for e in rubric.get("evidence") or []:
+            quote = normalise_text(e.get("quote"))
+            if quote and f" {quote} " in transcript:
+                evidence.append({"quote": e["quote"].strip(), "criterion": e.get("criterion"),
+                                 "note": e.get("note", "")})
         answer.feedback = {"summary": rubric["summary"], "strengths": rubric["strengths"][:3],
                            "gaps": rubric["gaps"][:3], "evidence": evidence[:3]}
     answer.score_status, answer.score_error, answer.scored_at = InterviewAnswer.SCORE_DONE, None, utcnow()
@@ -189,6 +278,13 @@ def run_scoring(answer_id, retries_left=0):
         db.session.commit()
         current_app.logger.error("Scoring answer %s failed: %s", answer_id, e)
         return None
+    except ScoringError as e:
+        db.session.rollback()
+        answer = db.session.get(InterviewAnswer, answer_id)
+        answer.score_status, answer.score_error = InterviewAnswer.SCORE_FAILED, str(e)
+        db.session.commit()
+        current_app.logger.error("Scoring answer %s failed: %s", answer_id, e)
+        return None
 
 
 def interview_nlp_summary(interview):
@@ -201,4 +297,4 @@ def interview_nlp_summary(interview):
     return {"answers": len(scored), "nlp": avg("nlp_score"), "relevance": avg("relevance"),
             "accuracy": avg("accuracy"), "fluency": avg("fluency"), "similarity": avg("similarity_score"),
             "clarity": avg("clarity"), "wpm": round(sum(paces) / len(paces)) if paces else None,
-            "fillers": sum(a.filler_count or 0 for a in scored)}
+            "fillers": sum(a.filler_count or 0 for a in scored), "review": sum(bool(a.needs_review) for a in scored)}

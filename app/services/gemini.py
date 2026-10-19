@@ -230,8 +230,14 @@ class ReferenceAnswer(BaseModel):
 
 
 class EvidenceQuote(BaseModel):
-    quote: str = Field(description="Exact words copied from the transcript")
+    quote: str = Field(description="Exact words copied from the transcript (a short phrase or sentence)")
+    criterion: Literal["relevance", "accuracy", "fluency", "clarity"] = Field(
+        description="Which score this quote supports")
     note: str = Field(description="Why this quote matters (positive or negative), max 15 words")
+
+
+VERDICTS = ("correct", "partially_correct", "incorrect", "off_topic", "dont_know", "no_answer",
+            "clarification_request")
 
 
 class AnswerScore(BaseModel):
@@ -244,10 +250,21 @@ class AnswerScore(BaseModel):
     strengths: list[str] = Field(description="Up to 3 short strengths")
     gaps: list[str] = Field(description="Up to 3 short gaps or mistakes compared with a strong answer")
     evidence: list[EvidenceQuote] = Field(description="1-3 quotes from the transcript that justify the scores")
+    verdict: Literal["correct", "partially_correct", "incorrect", "off_topic", "dont_know", "no_answer",
+                     "clarification_request"] = Field(
+        description="Overall judgement. correct = right and reasonably complete (alternative valid approaches count); "
+                    "partially_correct = right but incomplete, or mixes right and wrong claims; incorrect = mainly "
+                    "wrong; off_topic = doesn't address the question; dont_know = the candidate says they don't know; "
+                    "no_answer = nothing assessable; clarification_request = the candidate asks for the question to be "
+                    "explained or repeated instead of answering")
+    confidence: Literal["high", "medium", "low"] = Field(
+        description="How sure you are of this assessment. Use low when the transcript is garbled or ambiguous, the "
+                    "question itself seems ambiguous, or you can't judge correctness reliably")
 
 
 class FollowUp(BaseModel):
-    question: str = Field(description="One focused follow-up question, max 30 words")
+    question: str = Field(description="One focused follow-up question, max 30 words, ending with a question mark")
+    target_concept: str = Field(description="The missing concept or misconception this follow-up probes, max 12 words")
     reference_answer: str = Field(description="What a strong answer to the follow-up covers, 50-100 words")
 
 
@@ -287,19 +304,31 @@ def score_answer(question, category, reference, transcript, job_title, speech):
               f"Speech measurements: {speech['word_count']} words, {speech['words_per_minute'] or 'unknown'} words per "
               f"minute, {speech['filler_count']} filler words (um/uh...). Natural speech has some fillers; only penalise "
               "fluency when they clearly disrupt the answer.\n\n"
-              "Judge only the content of the transcript; ignore accent, grammar slips typical of spoken language and "
-              "transcription errors. Do not reward length for its own sake.\n\n"
+              "Assessment rules:\n"
+              "- Judge the content only. Ignore accent, grammar slips typical of spoken language and transcription "
+              "errors; never penalise a concise answer that is correct.\n"
+              "- Length is not knowledge: a long answer with wrong claims is not a good answer; repeating keywords "
+              "without explaining them is not understanding.\n"
+              "- The reference is a guide, not the only correct answer: accept valid alternative approaches, "
+              "terminology or algorithms; resembling the reference wording does not make an answer correct.\n"
+              "- If the candidate corrects themselves, judge the final version; note contradictions within the answer.\n"
+              "- For a multi-part question, judge how much of it was answered.\n"
+              "- Code, SQL, formulas or identifiers spoken aloud are content: judge their correctness.\n"
+              "- If you cannot judge reliably, say so with confidence = low rather than guessing.\n\n"
               f"<transcript>\n{transcript[:8000].replace('</transcript>', '')}\n</transcript>")
     return _structured(prompt, AnswerScore, "score the answer")
 
 
-def generate_follow_up(question, reference, transcript, job_title):
-    """A focused follow-up probing what a weak technical answer missed (paper 3.3)."""
+def generate_follow_up(question, reference, transcript, job_title, upcoming=()):
+    """A focused follow-up probing what a weak technical answer missed (paper 3.3). `upcoming` lists the questions
+    still to come, so the follow-up doesn't duplicate them."""
     prompt = (f"You are interviewing a candidate for '{job_title}'. Their answer to a technical question was weak.\n"
               f"{ANSWER_SAFETY}\n\nOriginal question: {question}\n"
               f"What a strong answer covers:\n{reference}\n\n"
               f"<transcript>\n{transcript[:6000].replace('</transcript>', '')}\n</transcript>\n\n"
-              "Write ONE focused follow-up question that probes the most important missing point, so we can tell "
-              "whether it's a real knowledge gap or just how they phrased it. Be encouraging and specific; don't "
-              "reveal the answer. Also give its reference answer.")
+              + ("Questions still planned later in this interview (do NOT ask about the same thing):\n- "
+                 + "\n- ".join(upcoming) + "\n\n" if upcoming else "")
+              + "Write ONE focused follow-up question that probes the most important missing point or misconception, "
+              "so we can tell whether it's a real knowledge gap or just how they phrased it. Be encouraging and "
+              "specific; don't reveal or hint at the answer. Name the concept it targets and give its reference answer.")
     return _structured(prompt, FollowUp, "prepare a follow-up question")

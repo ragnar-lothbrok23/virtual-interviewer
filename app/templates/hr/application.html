@@ -89,9 +89,10 @@
       <div style="min-width: 8rem"><div class="small text-muted">{{ label }}</div>{{ score_bar(nlp[key]) }}</div>
     {% endfor %}
     <div class="small text-muted">{% if nlp.wpm %}{{ nlp.wpm }} words/min · {% endif %}{{ nlp.fillers }} filler word(s)</div>
+    {% if nlp.review %}<span class="badge text-bg-warning"><i class="bi bi-person-check me-1"></i>{{ nlp.review }} answer{{ 's' if nlp.review != 1 }} need{{ 's' if nlp.review == 1 }} human review</span>{% endif %}
   </div>
   <div class="small text-muted mt-2">NLP score per answer = 30% relevance + 30% accuracy + 20% similarity to the reference answer + 20% fluency
-    (paper §3.4). The final scorecard with emotion and context comes later.</div>
+    (the components follow paper §3.4; the weights are an implementation choice). The final scorecard with emotion and context comes later.</div>
 </div></div>
 {% endif %}
 <div class="row g-4">
@@ -107,6 +108,9 @@
         {% if ans.attempts > 1 %}· <span class="text-warning">shown {{ ans.attempts }}× (reconnect)</span>{% endif %}
         {% if ans.late %}· <span class="text-danger">late</span>{% endif %}
       </div>
+      {% if ans.is_follow_up and ans.follow_up_target %}
+      <div class="small mb-2"><i class="bi bi-bullseye me-1 text-warning"></i>Probes: {{ ans.follow_up_target }}</div>
+      {% endif %}
       {% if ans.media_path %}
       <video class="w-100 rounded bg-dark mb-2" style="max-height: 320px" controls preload="metadata"
              src="{{ url_for('hr.answer_media', answer_id=ans.id) }}"></video>
@@ -124,11 +128,24 @@
             <span class="text-muted">{% if ans.words_per_minute %}{{ ans.words_per_minute|int }} wpm · {% endif %}{{ ans.filler_count }} filler(s)</span>
             {% if ans.scored_at %}<span class="text-muted ms-auto" title="Last scored">Scored {{ ans.scored_at|localtime('%d %b, %I:%M:%S %p') }}</span>{% endif %}
           </div>
+          {% if ans.verdict or ans.needs_review %}
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+            {% if ans.verdict %}
+            {% set vcolor = {'correct': 'success', 'partially_correct': 'warning', 'incorrect': 'danger', 'off_topic': 'danger', 'dont_know': 'secondary', 'no_answer': 'secondary', 'clarification_request': 'info'}[ans.verdict] | default('secondary') %}
+            <span class="badge text-bg-{{ vcolor }}">{{ ans.verdict_label }}</span>
+            {% endif %}
+            {% if ans.confidence %}<span class="text-muted">Assessment confidence: {{ ans.confidence }}</span>{% endif %}
+            {% if ans.needs_review %}<span class="badge text-bg-warning"><i class="bi bi-person-check me-1"></i>Needs human review</span>{% endif %}
+          </div>
+          {% endif %}
           {% if ans.feedback %}
             <div class="mb-1">{{ ans.feedback.summary }}</div>
             {% if ans.feedback.strengths %}<div class="text-success"><i class="bi bi-plus-circle me-1"></i>{{ ans.feedback.strengths|join(' · ') }}</div>{% endif %}
             {% if ans.feedback.gaps %}<div class="text-danger"><i class="bi bi-dash-circle me-1"></i>{{ ans.feedback.gaps|join(' · ') }}</div>{% endif %}
-            {% for e in ans.feedback.evidence %}<div class="fst-italic text-muted">“{{ e.quote }}” — {{ e.note }}</div>{% endfor %}
+            {% if ans.feedback.evidence %}
+            <div class="text-muted mt-1" title="Quotes are checked to appear in the transcript; that shows what was said, not that it is correct.">Quoted from the transcript:</div>
+            {% for e in ans.feedback.evidence %}<div class="fst-italic text-muted">“{{ e.quote }}”{% if e.criterion %} <span class="badge text-bg-light border fst-normal">{{ e.criterion }}</span>{% endif %} — {{ e.note }}</div>{% endfor %}
+            {% endif %}
           {% endif %}
         </div>
         {% elif ans.score_status == 'failed' %}
@@ -161,7 +178,7 @@
       <ul class="list-unstyled small mb-0">
         {% for e in evs %}
         <li class="mb-1 {{ 'text-warning-emphasis fw-semibold' if e.flagged }}">
-          <span class="text-muted">{{ e.created_at|localtime('%I:%M:%S %p') }}</span> · {{ e.label }}{% if e.position is not none %} (Q{{ e.position + 1 }}){% endif %}
+          <span class="text-muted">{{ e.created_at|localtime('%I:%M:%S %p') }}</span> · {{ e.label }}{% if e.position is not none %} (Q{{ e.position + 1 }}){% endif %}{% if e.details and e.details.reason %}: {{ e.details.reason }}{% endif %}
         </li>
         {% endfor %}
       </ul>

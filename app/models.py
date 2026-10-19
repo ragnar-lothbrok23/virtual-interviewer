@@ -463,6 +463,7 @@ class InterviewAnswer(db.Model):
     # Adaptive questioning
     is_follow_up = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     reference_answer = db.Column(db.Text)
+    follow_up_target = db.Column(db.String(200))  # follow-ups only: the missing concept it probes
 
     # Scoring (Phase 7): Gemini rubric + semantic similarity + speech metrics computed locally
     SCORE_PENDING = "pending"
@@ -482,7 +483,18 @@ class InterviewAnswer(db.Model):
     word_count = db.Column(db.Integer)
     words_per_minute = db.Column(db.Float)
     filler_count = db.Column(db.Integer)
-    feedback = db.Column(db.JSON)  # {summary, strengths: [], gaps: [], evidence: [{quote, note}]}
+    feedback = db.Column(db.JSON)  # {summary, strengths: [], gaps: [], evidence: [{quote, criterion, note}]}
+    verdict = db.Column(db.String(30))  # correct, partially_correct, incorrect, off_topic, dont_know, no_answer, ...
+    confidence = db.Column(db.String(10))  # assessor confidence: high, medium, low
+    needs_review = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+
+    VERDICT_LABELS = {"correct": "Correct", "partially_correct": "Partially correct", "incorrect": "Incorrect",
+                      "off_topic": "Off topic", "dont_know": "Said they don't know", "no_answer": "No answer",
+                      "clarification_request": "Asked for clarification"}
+
+    @property
+    def verdict_label(self):
+        return self.VERDICT_LABELS.get(self.verdict, self.verdict)
 
     @property
     def is_scored(self):
@@ -515,7 +527,8 @@ class InterviewEvent(db.Model):
               "finished": "Interview finished", "timed_out": "Interview timed out", "device_error": "Camera/mic problem",
               "late_answer": "Answer submitted after the time limit",
               "follow_up_added": "Follow-up question added (weak technical answer)",
-              "decision_timeout": "Follow-up decision timed out; moved on"}
+              "decision_timeout": "Follow-up decision timed out; moved on",
+              "follow_up_skipped": "Follow-up not asked (failed checks or not enough time)"}
     FLAGGED = {"tab_hidden", "window_blur", "question_restarted", "late_answer", "device_error"}
 
     id = db.Column(db.Integer, primary_key=True)
@@ -534,6 +547,17 @@ class InterviewEvent(db.Model):
     @property
     def flagged(self):
         return self.kind in self.FLAGGED
+
+
+class EmbeddingCache(db.Model):
+    """Embeddings of reference texts, keyed by sha256(model + text): edits and model changes never reuse stale ones."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(64), nullable=False, unique=True)
+    model = db.Column(db.String(80), nullable=False)
+    dims = db.Column(db.Integer, nullable=False)
+    vector = db.Column(db.LargeBinary, nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class EmailLog(db.Model):

@@ -7,11 +7,13 @@ from flask import current_app
 from pypdf import PdfReader
 
 from . import gemini
+from .vectors import VectorError, safe_cosine
 
 ALLOWED_EXTENSIONS = {"pdf", "docx"}
 
 # Calibrated on the sample resumes: gemini-embedding-2 gives ~0.67-0.71 for a wrong-role resume
 # and ~0.82 for a strong fit, so 0.60-0.85 is stretched linearly onto a 0-100 score.
+# [paper] cosine similarity of embeddings as the match score; [impl] this floor/ceiling calibration.
 SIMILARITY_FLOOR = 0.60
 SIMILARITY_CEIL = 0.85
 
@@ -85,7 +87,8 @@ def skill_summary(profile, required_skills):
 
 
 def cosine_similarity(a, b):
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+    """Raises VectorError for empty, zero, non-finite or mismatched embeddings (never returns NaN)."""
+    return safe_cosine(a, b)
 
 
 def similarity_to_score(similarity):
@@ -105,7 +108,11 @@ def analyse(resume_text, job):
     Returns (profile, resume_embedding_bytes, similarity, score)."""
     profile = gemini.parse_resume(resume_text, job)
     resume_vec = gemini.embed(profile_text(profile))
-    similarity = cosine_similarity(resume_vec, job_embedding(job))
+    try:
+        similarity = cosine_similarity(resume_vec, job_embedding(job))
+    except VectorError as e:
+        job.embedding = None  # don't keep a possibly broken cached job embedding; it's rebuilt on the retry
+        raise gemini.GeminiError(f"The AI returned an unusable embedding ({e}).", retryable=True) from e
     return profile, np.asarray(resume_vec, dtype=np.float32).tobytes(), similarity, similarity_to_score(similarity)
 
 
