@@ -21,7 +21,8 @@ ORIGINAL_TRANSCRIBE = gemini.transcribe
 
 
 @pytest.fixture(autouse=True)
-def fake_transcribe(monkeypatch):
+def fake_transcribe(interview_ai, monkeypatch):
+    """Transcripts like 'Answer of 204 bytes' (no 'flask' in them, so technical answers count as weak)."""
     calls = []
 
     def fake(media, mime_type):
@@ -93,26 +94,31 @@ def test_start_outside_window_is_refused(app, booked, login):
 # ---------- the question loop ----------
 
 def test_full_interview(app, room, fake_transcribe):
-    started(room)
-    for position in range(7):
+    state = started(room)
+    position = 0
+    while not state["finished"]:
         assert api(room, "ask", {"position": position}).status_code == 200
         room.frozen.tick(60)
         response = upload(room, position, data=WEBM if position % 2 == 0 else MP4)
         assert response.status_code == 200
-    state = response.get_json()
-    assert state["finished"] and state["status"] == "completed"
+        state = response.get_json()
+        position += 1
+    assert state["status"] == "completed"
     interview = get(app, Interview, room.id)
-    assert interview.end_reason == "completed" and interview.current_position == 7
+    # 7 planned questions; the weak technical answers earned the maximum of 3 follow-ups
+    assert interview.end_reason == "completed" and interview.follow_up_count == 3 and interview.current_position == 10
     with app.app_context():
         answers = InterviewAnswer.query.order_by(InterviewAnswer.position).all()
-        assert [a.transcript_status for a in answers] == ["done"] * 7
+        assert len(answers) == 10 and [a.transcript_status for a in answers] == ["done"] * 10
+        assert sum(a.is_follow_up for a in answers) == 3
+        assert all(a.is_scored for a in answers)
         assert answers[1].media_type == "video/mp4" and answers[0].media_type == "video/webm"
         assert answers[0].duration_seconds == 42.5 and not answers[0].late
         on_disk = (app.config["UPLOAD_FOLDER"] / answers[0].media_path).read_bytes()
         assert on_disk.startswith(b"VIE1") and WEBM not in on_disk  # encrypted at rest
         kinds = {n.kind for n in Notification.query}
         assert {"interview.completed", "interview.completed_hr"} <= kinds
-    assert len(fake_transcribe) == 7
+    assert len(fake_transcribe) == 10
     # nothing more can be asked; re-sending the final answer is a harmless no-op
     assert api(room, "ask", {"position": 6}).status_code == 403
     assert upload(room, 6).status_code == 200
@@ -315,7 +321,8 @@ def test_hr_sees_answers_transcripts_and_flags(app, room, hr_client, booked, log
     complete_two(app, room)
     hr_client = login("hr@test.com")
     page = hr_client.get(f"/hr/applications/{app_id}").get_data(as_text=True)
-    assert "Interview answers" in page and "2 of 7 answered" in page
+    assert "Interview answers" in page and "2 of 8 answered" in page and "1 follow-up(s)" in page
+    assert "NLP score (2 answers)" in page and "Similarity to reference" in page and "Missing technical detail" in page
     assert "Answer of 204 bytes" in page and "<video" in page
     assert "Left the interview tab" in page and "1 flag(s)" in page
 

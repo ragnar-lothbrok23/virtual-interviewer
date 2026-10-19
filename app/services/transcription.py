@@ -3,7 +3,7 @@ from flask import current_app
 
 from ..extensions import db
 from ..models import InterviewAnswer
-from . import gemini, storage
+from . import gemini, scoring, storage
 from .gemini import GeminiError
 
 
@@ -17,7 +17,9 @@ def run_transcription(answer_id, retries_left=0):
         media = storage.read_resume(answer.media_path)
     except storage.StorageError as e:
         answer.transcript_status, answer.transcript_error = InterviewAnswer.TRANSCRIPT_FAILED, str(e)
+        answer.score_status, answer.score_error = InterviewAnswer.SCORE_FAILED, "Recording unreadable"
         db.session.commit()
+        scoring.decide_follow_up(answer)  # never leave the candidate waiting
         return answer.transcript_status
     try:
         result = gemini.transcribe(media, answer.media_type or "video/webm")
@@ -28,10 +30,17 @@ def run_transcription(answer_id, retries_left=0):
             raise
         current_app.logger.error("Transcription of answer %s failed: %s", answer.id, e)
         answer.transcript_status, answer.transcript_error = InterviewAnswer.TRANSCRIPT_FAILED, str(e)
+        answer.score_status, answer.score_error = InterviewAnswer.SCORE_FAILED, "No transcript to score"
         db.session.commit()
+        scoring.decide_follow_up(answer)  # releases a waiting interview (no follow-up without a transcript)
         return answer.transcript_status
     answer.transcript = result["transcript"]
     answer.speech_detected = result["speech_detected"]
     answer.transcript_status, answer.transcript_error = InterviewAnswer.TRANSCRIPT_DONE, None
     db.session.commit()
+    scoring.decide_follow_up(answer)  # time-critical: the candidate is waiting for the next question
+
+    from ..tasks import score_answer
+
+    score_answer(answer.id)
     return answer.transcript_status

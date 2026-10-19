@@ -371,6 +371,8 @@ class Interview(db.Model):
     current_position = db.Column(db.Integer, nullable=False, default=0)  # index of the next unanswered question
     hard_deadline = db.Column(db.DateTime(timezone=True))  # once started, the latest moment answers are accepted
     end_reason = db.Column(db.String(16))  # completed / timed_out
+    follow_up_count = db.Column(db.Integer, nullable=False, default=0, server_default=db.text("0"))
+    awaiting_decision_since = db.Column(db.DateTime(timezone=True))  # set while deciding on a follow-up question
 
     END_COMPLETED = "completed"
     END_TIMED_OUT = "timed_out"
@@ -419,6 +421,7 @@ class InterviewQuestion(db.Model):
     text = db.Column(db.Text, nullable=False)
     category = db.Column(db.String(16), nullable=False, default="technical")
     answer_seconds = db.Column(db.Integer, nullable=False, default=120)
+    reference_answer = db.Column(db.Text)  # what a strong answer covers; answers are compared with it (paper 3.3)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
 
     job = db.relationship("Job", backref=db.backref("questions", cascade="all, delete-orphan",
@@ -457,6 +460,33 @@ class InterviewAnswer(db.Model):
     transcript_error = db.Column(db.Text)
     speech_detected = db.Column(db.Boolean)
 
+    # Adaptive questioning
+    is_follow_up = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    reference_answer = db.Column(db.Text)
+
+    # Scoring (Phase 7): Gemini rubric + semantic similarity + speech metrics computed locally
+    SCORE_PENDING = "pending"
+    SCORE_DONE = "done"
+    SCORE_FAILED = "failed"
+    score_status = db.Column(db.String(10))
+    score_error = db.Column(db.Text)
+    scored_at = db.Column(db.DateTime(timezone=True))
+    similarity = db.Column(db.Float)  # cosine similarity to the reference answer
+    similarity_score = db.Column(db.Float)  # 0-100
+    relevance = db.Column(db.Float)  # 0-100 each, from the Gemini rubric
+    accuracy = db.Column(db.Float)
+    fluency = db.Column(db.Float)
+    clarity = db.Column(db.Float)
+    nlp_score = db.Column(db.Float)  # weighted per-answer NLP score (0-100)
+    word_count = db.Column(db.Integer)
+    words_per_minute = db.Column(db.Float)
+    filler_count = db.Column(db.Integer)
+    feedback = db.Column(db.JSON)  # {summary, strengths: [], gaps: [], evidence: [{quote, note}]}
+
+    @property
+    def is_scored(self):
+        return self.score_status == self.SCORE_DONE and self.nlp_score is not None
+
     interview = db.relationship("Interview", back_populates="answers")
 
     __table_args__ = (db.UniqueConstraint("interview_id", "position", name="uq_interview_answer_position"),)
@@ -473,7 +503,9 @@ class InterviewEvent(db.Model):
               "window_blur": "Interview window lost focus", "reconnect": "Rejoined after a disconnect",
               "question_restarted": "Question shown again after reconnecting", "started": "Interview started",
               "finished": "Interview finished", "timed_out": "Interview timed out", "device_error": "Camera/mic problem",
-              "late_answer": "Answer submitted after the time limit"}
+              "late_answer": "Answer submitted after the time limit",
+              "follow_up_added": "Follow-up question added (weak technical answer)",
+              "decision_timeout": "Follow-up decision timed out; moved on"}
     FLAGGED = {"tab_hidden", "window_blur", "question_restarted", "late_answer", "device_error"}
 
     id = db.Column(db.Integer, primary_key=True)

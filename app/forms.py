@@ -215,4 +215,6 @@ class QuestionForm(FlaskForm):
     category = SelectField("Type", choices=[("technical", "Technical"), ("behavioral", "Behavioural"),
                                             ("situational", "Situational")])
     answer_seconds = IntegerField("Answer time (seconds)", default=120, validators=[InputRequired(), NumberRange(30, 600)])
+    reference_answer = TextAreaField("Reference answer (optional)", validators=[Optional(), Length(max=3000)],
+                                     render_kw={"rows": 3, "placeholder": "Leave empty to have it written by the AI"})
     submit_question = SubmitField("Save")

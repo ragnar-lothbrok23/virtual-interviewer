@@ -119,6 +119,24 @@ def transcribe_answer(answer_id, task=None):
         return run_transcription(answer_id, retries_left=task.retries if task is not None else 0)
 
 
+@huey.task(retries=_cfg.ANALYSIS_RETRIES, retry_delay=_cfg.ANALYSIS_RETRY_DELAY, context=True)
+def score_answer(answer_id, task=None):
+    """Score one transcribed answer (Gemini rubric + semantic similarity + speech metrics)."""
+    from .services.scoring import run_scoring
+
+    with app_context():
+        return run_scoring(answer_id, retries_left=task.retries if task is not None else 0)
+
+
+@huey.task(retries=_cfg.ANALYSIS_RETRIES, retry_delay=_cfg.ANALYSIS_RETRY_DELAY)
+def prepare_reference_answers(job_id):
+    """Generate reference answers for a job's questions (used for semantic similarity and follow-ups)."""
+    from .services.scoring import fill_missing_references
+
+    with app_context():
+        return fill_missing_references(job_id)
+
+
 @huey.periodic_task(crontab(minute="*/5"))
 def interview_housekeeping():
     """Every 5 minutes: send due interview reminders, mark missed interviews, close abandoned ones."""

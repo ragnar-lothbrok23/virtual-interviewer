@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import match_summary, profile_card %}
+{% from "_macros.html" import match_summary, profile_card, score_bar, score_color %}
 {% block title %}{{ a.candidate.name }} · {{ a.job.title }}{% endblock %}
 {% block content %}
 <a href="{{ url_for('hr.job_detail', job_id=a.job.id) }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> {{ a.job.title }} applicants</a>
@@ -78,14 +78,29 @@
 {% if iv and iv.answers %}
 <h5 class="mt-4 mb-3" id="interview-results">Interview answers
   <span class="small text-muted fw-normal">{{ iv.answers|selectattr('is_submitted')|list|length }} of {{ iv.question_count }} answered
+  {% if iv.follow_up_count %}· {{ iv.follow_up_count }} follow-up(s){% endif %}
   {% if iv.end_reason == 'timed_out' %}· <span class="text-danger">timed out</span>{% endif %}</span></h5>
+{% if nlp %}
+<div class="card shadow-sm mb-3"><div class="card-body">
+  <div class="d-flex flex-wrap align-items-center gap-4">
+    <div><div class="small text-muted">NLP score ({{ nlp.answers }} answer{{ 's' if nlp.answers != 1 }})</div>
+      <div class="display-6 fw-bold text-{{ score_color(nlp.nlp) }}">{{ nlp.nlp|round|int }}<span class="fs-6 text-muted">/100</span></div></div>
+    {% for label, key in [('Relevance', 'relevance'), ('Accuracy', 'accuracy'), ('Fluency', 'fluency'), ('Similarity to reference', 'similarity'), ('Clarity', 'clarity')] %}
+      <div style="min-width: 8rem"><div class="small text-muted">{{ label }}</div>{{ score_bar(nlp[key]) }}</div>
+    {% endfor %}
+    <div class="small text-muted">{% if nlp.wpm %}{{ nlp.wpm }} words/min · {% endif %}{{ nlp.fillers }} filler word(s)</div>
+  </div>
+  <div class="small text-muted mt-2">NLP score per answer = 30% relevance + 30% accuracy + 20% similarity to the reference answer + 20% fluency
+    (paper §3.4). The final scorecard with emotion and context comes later.</div>
+</div></div>
+{% endif %}
 <div class="row g-4">
   <div class="col-lg-8">
     {% for ans in iv.answers %}
     <div class="card shadow-sm mb-3"><div class="card-body">
-      <div class="d-flex justify-content-between">
+      <div class="d-flex justify-content-between gap-2">
         <div class="fw-semibold">Q{{ ans.position + 1 }}. {{ ans.question_text }}</div>
-        <span class="badge text-bg-light border align-self-start">{{ ans.category }}</span>
+        <span class="badge {{ 'text-bg-warning' if ans.is_follow_up else 'text-bg-light border' }} align-self-start text-nowrap">{{ 'Follow-up' if ans.is_follow_up else ans.category }}</span>
       </div>
       <div class="small text-muted mb-2">
         {% if ans.is_submitted %}{{ '%.0f'|format(ans.duration_seconds or 0) }} s of {{ ans.answer_seconds }} s{% else %}Not answered{% endif %}
@@ -97,8 +112,35 @@
              src="{{ url_for('hr.answer_media', answer_id=ans.id) }}"></video>
       {% endif %}
       {% if ans.transcript_status == 'done' %}
-        {% if ans.speech_detected %}<blockquote class="small mb-0 border-start border-3 ps-3">{{ ans.transcript }}</blockquote>
-        {% else %}<div class="small text-muted fst-italic">No speech detected in this answer.</div>{% endif %}
+        {% if ans.speech_detected %}<blockquote class="small mb-2 border-start border-3 ps-3">{{ ans.transcript }}</blockquote>
+        {% else %}<div class="small text-muted fst-italic mb-2">No speech detected in this answer.</div>{% endif %}
+        {% if ans.is_scored %}
+        <div class="border rounded p-2 bg-body-tertiary small">
+          <div class="d-flex flex-wrap align-items-center gap-3 mb-1">
+            <span class="fw-semibold">NLP <span class="text-{{ score_color(ans.nlp_score) }}">{{ ans.nlp_score|round|int }}</span></span>
+            <span>Relevance {{ ans.relevance|int }}</span><span>Accuracy {{ ans.accuracy|int }}</span>
+            <span>Fluency {{ ans.fluency|int }}</span><span>Clarity {{ ans.clarity|int }}</span>
+            <span title="Semantic similarity to the reference answer">Similarity {{ ans.similarity_score|int }}</span>
+            <span class="text-muted">{% if ans.words_per_minute %}{{ ans.words_per_minute|int }} wpm · {% endif %}{{ ans.filler_count }} filler(s)</span>
+          </div>
+          {% if ans.feedback %}
+            <div class="mb-1">{{ ans.feedback.summary }}</div>
+            {% if ans.feedback.strengths %}<div class="text-success"><i class="bi bi-plus-circle me-1"></i>{{ ans.feedback.strengths|join(' · ') }}</div>{% endif %}
+            {% if ans.feedback.gaps %}<div class="text-danger"><i class="bi bi-dash-circle me-1"></i>{{ ans.feedback.gaps|join(' · ') }}</div>{% endif %}
+            {% for e in ans.feedback.evidence %}<div class="fst-italic text-muted">“{{ e.quote }}” — {{ e.note }}</div>{% endfor %}
+          {% endif %}
+        </div>
+        {% elif ans.score_status == 'failed' %}
+          <div class="small text-danger">Scoring failed: {{ ans.score_error }}</div>
+        {% else %}
+          <div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Scoring…</div>
+        {% endif %}
+        {% if ans.score_status in ('done', 'failed') %}
+        <form method="post" action="{{ url_for('hr.rescore_answer', answer_id=ans.id) }}" class="mt-1">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-link btn-sm p-0">Re-score</button>
+        </form>
+        {% endif %}
       {% elif ans.transcript_status == 'failed' %}
         <div class="small text-danger">Transcription failed: {{ ans.transcript_error }}</div>
       {% elif ans.is_submitted %}

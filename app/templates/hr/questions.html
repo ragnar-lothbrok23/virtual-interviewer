@@ -33,6 +33,10 @@
       <form method="post" action="{{ url_for('hr.edit_question', question_id=q.id) }}" novalidate>
         {{ f.hidden_tag() }}
         {{ f.text(class="form-control mb-2") }}
+        <details class="mb-2" {{ 'open' if not q.reference_answer }}>
+          <summary class="small text-muted">Reference answer {% if q.reference_answer %}(used to score answers and decide on follow-ups){% else %}<span class="text-warning">(being written by the AI…)</span>{% endif %}</summary>
+          {{ f.reference_answer(class="form-control form-control-sm mt-1") }}
+        </details>
         <div class="d-flex gap-2">
           {{ f.category(class="form-select form-select-sm w-auto") }}
           <div class="input-group input-group-sm w-auto">{{ f.answer_seconds(class="form-control", style="width: 6rem") }}<span class="input-group-text">seconds</span></div>
@@ -59,6 +63,7 @@
         {{ field(form.text) }}
         <div class="mb-3"><label class="form-label">{{ form.category.label.text }}</label>{{ form.category(class="form-select") }}</div>
         {{ field(form.answer_seconds, help="30 to 600 seconds. Candidates also get " ~ config.PREP_SECONDS ~ " seconds to read each question.") }}
+        {{ field(form.reference_answer, help="What a strong answer covers. Answers are compared with it, and weak technical answers get a follow-up question.") }}
         {{ form.submit_question(class="btn btn-primary w-100", value="Add question") }}
       </form>
       {% else %}

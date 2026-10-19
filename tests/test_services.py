@@ -11,6 +11,7 @@ from app.services import gemini, resume
 SAMPLES = Path(__file__).resolve().parent.parent / "sample_resumes"
 # Captured at import time, before conftest's autouse fixture swaps them for a blocker
 ORIGINAL_PARSE, ORIGINAL_EMBED = gemini.parse_resume, gemini.embed
+ORIGINAL_CLIENT = gemini._client
 
 
 # ---------- text extraction ----------
@@ -93,6 +94,7 @@ def real_gemini_functions(monkeypatch):
     """Undo the conftest block for the wrapper functions themselves; the client underneath is faked."""
     monkeypatch.setattr(gemini, "parse_resume", ORIGINAL_PARSE)
     monkeypatch.setattr(gemini, "embed", ORIGINAL_EMBED)
+    monkeypatch.setattr(gemini, "_client", ORIGINAL_CLIENT)  # this test exercises client creation itself
     monkeypatch.setattr(gemini.time, "sleep", lambda s: None)
     return gemini
 

@@ -81,12 +81,66 @@ def _clean_state(app):
 
 @pytest.fixture(autouse=True)
 def _no_real_gemini(monkeypatch):
-    """Tests must never call the real Gemini API (it costs quota). Use the fake_gemini fixture instead."""
+    """Tests must never call the real Gemini API (it costs quota and is slow). Every helper is replaced, and the
+    client itself refuses to be created unless a test installs a fake one in app.extensions["gemini_client"]."""
     def blocked(*args, **kwargs):
         raise AssertionError("A test tried to call the real Gemini API; use the fake_gemini fixture")
 
-    monkeypatch.setattr(gemini, "parse_resume", blocked)
-    monkeypatch.setattr(gemini, "embed", blocked)
+    for name in ("parse_resume", "embed", "transcribe", "generate_reference", "score_answer", "generate_follow_up"):
+        monkeypatch.setattr(gemini, name, blocked)
+    real_client = gemini._client
+
+    def guarded_client():
+        from flask import current_app
+        if "gemini_client" not in current_app.extensions:
+            raise AssertionError("A test tried to create a real Gemini client")
+        return real_client()
+
+    monkeypatch.setattr(gemini, "_client", guarded_client)
+
+
+class FakeInterviewAI:
+    """Deterministic interview AI: answers mentioning 'flask' are strong, others weak."""
+
+    def __init__(self):
+        self.calls = {"reference": 0, "score": 0, "follow_up": 0, "transcribe": 0, "embed": 0}
+        self.transcript = "Um, I built REST APIs with Flask and PostgreSQL."
+
+    def transcribe(self, media, mime_type):
+        self.calls["transcribe"] += 1
+        return {"speech_detected": bool(self.transcript), "language": "en", "transcript": self.transcript}
+
+    def generate_reference(self, question, category, job_title, skills):
+        self.calls["reference"] += 1
+        return f"A strong answer explains Flask routing, REST APIs and SQL databases for: {question}"
+
+    def embed(self, text):
+        self.calls["embed"] += 1
+        vec = np.zeros(8, dtype=np.float32)
+        vec[0 if "flask" in text.lower() else 1] = 1.0
+        return vec
+
+    def score_answer(self, question, category, reference, transcript, job_title, speech):
+        self.calls["score"] += 1
+        strong = "flask" in transcript.lower()
+        return {"relevance": 9 if strong else 3, "accuracy": 8 if strong else 2, "fluency": 7, "clarity": 8,
+                "summary": "Answer summary.", "strengths": ["Concrete example"] if strong else [],
+                "gaps": [] if strong else ["Missing technical detail"],
+                "evidence": [{"quote": transcript.split(",")[-1].strip(), "note": "key point"},
+                             {"quote": "a sentence that was never said", "note": "invented"}]}
+
+    def generate_follow_up(self, question, reference, transcript, job_title):
+        self.calls["follow_up"] += 1
+        return {"question": "Can you explain how you would design a REST endpoint in Flask?",
+                "reference_answer": "Flask route, HTTP methods, JSON, status codes, validation."}
+
+
+@pytest.fixture
+def interview_ai(monkeypatch):
+    fake = FakeInterviewAI()
+    for name in ("transcribe", "generate_reference", "embed", "score_answer", "generate_follow_up"):
+        monkeypatch.setattr(gemini, name, getattr(fake, name))
+    return fake
 
 
 class FakeGemini:

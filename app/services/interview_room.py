@@ -9,7 +9,7 @@ from flask import current_app
 
 from ..extensions import db
 from ..models import Interview, InterviewAnswer, InterviewEvent, InterviewQuestion, User, as_utc, utcnow
-from . import storage
+from . import scoring, storage
 from .notifications import notify
 from .scheduling import join_window
 from .security import audit
@@ -57,6 +57,13 @@ def ensure_questions(job):
     return job.questions
 
 
+def queue_missing_references(job):
+    if any(not q.reference_answer for q in job.questions):
+        from ..tasks import prepare_reference_answers
+
+        prepare_reference_answers(job.id)
+
+
 # ---------- state ----------
 
 def can_enter(interview):
@@ -84,14 +91,31 @@ def _deadline(answer):
     return as_utc(answer.asked_at) + timedelta(seconds=prep + limit)
 
 
+def resolve_decision_timeout(interview):
+    """If deciding on a follow-up takes too long, move on without one (the interview must never stall)."""
+    since = interview.awaiting_decision_since
+    if since is None or interview.status != Interview.STATUS_IN_PROGRESS:
+        return
+    if utcnow() - as_utc(since) > timedelta(seconds=current_app.config["DECISION_TIMEOUT_SECONDS"]):
+        interview.awaiting_decision_since = None
+        log_event(interview, "decision_timeout", interview.current_position - 1)
+        db.session.commit()
+        if interview.current_position >= interview.question_count:
+            finish(interview, Interview.END_COMPLETED)
+
+
 def state(interview):
     """Everything the room page needs to (re)draw itself."""
+    resolve_decision_timeout(interview)
+    waiting = interview.awaiting_decision_since is not None and interview.status == Interview.STATUS_IN_PROGRESS
     data = {"status": interview.status, "position": interview.current_position, "total": interview.question_count,
-            "finished": interview.is_finished, "question": None}
-    if interview.status == Interview.STATUS_IN_PROGRESS and interview.current_position < interview.question_count:
+            "finished": interview.is_finished, "question": None, "waiting": waiting}
+    if (interview.status == Interview.STATUS_IN_PROGRESS and not waiting
+            and interview.current_position < interview.question_count):
         q = interview.question_plan[interview.current_position]
         data["question"] = {"position": interview.current_position, "text": q["text"], "category": q["category"],
-                            "answer_seconds": q["answer_seconds"], "prep_seconds": current_app.config["PREP_SECONDS"]}
+                            "answer_seconds": q["answer_seconds"], "prep_seconds": current_app.config["PREP_SECONDS"],
+                            "follow_up": bool(q.get("follow_up"))}
     if interview.hard_deadline is not None:
         data["seconds_left_overall"] = max(0, int((as_utc(interview.hard_deadline) - utcnow()).total_seconds()))
     return data
@@ -122,7 +146,8 @@ def start(interview, consented):
         raise RoomError("Please agree to the recording before starting.", 400)
 
     job = interview.application.job
-    plan = [{"text": q.text, "category": q.category, "answer_seconds": q.answer_seconds}
+    plan = [{"text": q.text, "category": q.category, "answer_seconds": q.answer_seconds,
+             "reference": q.reference_answer, "follow_up": False}
             for q in ensure_questions(job)]
     now = utcnow()
     planned = sum(current_app.config["PREP_SECONDS"] + q["answer_seconds"] for q in plan)
@@ -135,6 +160,7 @@ def start(interview, consented):
     log_event(interview, "started", questions=len(plan))
     audit("interview.started", target=interview.application.candidate, interview_id=interview.id)
     db.session.commit()
+    queue_missing_references(job)  # answers without a reference get one generated when they're scored
     return state(interview)
 
 
@@ -142,13 +168,17 @@ def ask(interview, position):
     """The room shows question `position`: records when it was shown (the answer timer starts from here).
     Showing the same question again (after a reconnect) restarts its timer but is flagged for HR."""
     _require_running(interview)
-    if position != interview.current_position:
+    resolve_decision_timeout(interview)
+    if interview.awaiting_decision_since is not None:
+        raise RoomError("The next question is still being prepared.", 425)
+    if position != interview.current_position or position >= interview.question_count:
         raise RoomError("That isn't the current question.")
     answer = _answer(interview, position)
     q = interview.question_plan[position]
     if answer is None:
         answer = InterviewAnswer(interview_id=interview.id, position=position, question_text=q["text"],
-                                 category=q["category"], answer_seconds=q["answer_seconds"], asked_at=utcnow())
+                                 category=q["category"], answer_seconds=q["answer_seconds"], asked_at=utcnow(),
+                                 is_follow_up=bool(q.get("follow_up")), reference_answer=q.get("reference"))
         db.session.add(answer)
     elif not answer.is_submitted:
         answer.attempts += 1
@@ -198,15 +228,20 @@ def submit(interview, position, data, duration_seconds):
     limit = answer.answer_seconds + current_app.config["ANSWER_GRACE_SECONDS"]
     answer.duration_seconds = None if reported is None else max(0.0, min(reported, float(limit)))
     answer.transcript_status = InterviewAnswer.TRANSCRIPT_PENDING
+    answer.score_status = InterviewAnswer.SCORE_PENDING
     if answer.late:
         log_event(interview, "late_answer", position)
     interview.current_position = position + 1
+    if scoring.needs_decision(interview, answer):
+        interview.awaiting_decision_since = now  # the room shows "preparing your next question"
     db.session.commit()
 
     from ..tasks import transcribe_answer
 
-    transcribe_answer(answer.id)
-    if interview.current_position >= interview.question_count:
+    transcribe_answer(answer.id)  # transcribes, decides on a follow-up if needed, then queues scoring
+    db.session.refresh(interview)
+    if (interview.awaiting_decision_since is None and interview.status == Interview.STATUS_IN_PROGRESS
+            and interview.current_position >= interview.question_count):
         finish(interview, Interview.END_COMPLETED)
     return state(interview)
 

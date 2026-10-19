@@ -114,6 +114,19 @@ enables secure cookies and HTTPS enforcement.
 - Development only: `venv\Scriptslask --app run dev-interview-soon <interview id>` moves a booked interview to
   start in 5 minutes so the room can be tried immediately.
 
+## Answer scoring and adaptive questions
+
+- Every question has a reference answer (written by Gemini in the background, editable by HR in Job → Questions).
+- After each answer is transcribed, the worker scores it: semantic similarity to the reference answer (Gemini
+  embeddings + cosine), a Gemini rubric (relevance, accuracy, fluency, clarity) with evidence quotes checked
+  against the transcript, and locally measured speaking pace and filler words.
+  Per-answer NLP score = 30% relevance + 30% accuracy + 20% similarity + 20% fluency (`NLP_WEIGHTS`).
+- Adaptive rule (paper §3.3): a technical answer whose similarity score is below `FOLLOW_UP_THRESHOLD` (55)
+  gets one focused follow-up question (at most `MAX_FOLLOW_UPS` = 3 per interview). The room shows
+  "Preparing your next question…" meanwhile; if the decision takes over 45 s the interview simply moves on.
+- HR sees every score, the quotes and strengths/gaps per answer, an interview NLP summary, and can re-score.
+- Calibration with real Gemini: strong / medium / weak spoken answers scored 87.5 / 53.5 / 30.9.
+
 ## Roles and accounts
 
 | Role | How the account is created | Can do |

@@ -193,15 +193,20 @@
 
   async function next() {
     setProgress();
+    if (state.waiting) { waitForNextQuestion(); return; }
     if (state.finished || !state.question) { finish(); return; }
     clearTimers();
     try {
       state = await postJSON(urls.ask, { position: state.question.position });
-    } catch (e) { fail(e.message); return; }
+    } catch (e) {
+      if (e.status === 425) { waitForNextQuestion(); return; }  // still being prepared
+      fail(e.message); return;
+    }
     const q = state.question;
     show("step-question");
     $("q-text").textContent = q.text;
-    $("q-category").textContent = { technical: "Technical", behavioral: "Behavioural", situational: "Situational" }[q.category] || q.category;
+    $("q-category").textContent = q.follow_up ? "Follow-up question"
+      : ({ technical: "Technical", behavioral: "Behavioural", situational: "Situational" }[q.category] || q.category);
     $("phase-prep").classList.remove("d-none");
     $("phase-record").classList.add("d-none");
     $("phase-upload").classList.add("d-none");
@@ -278,6 +283,26 @@
     }
     $("upload-status").textContent = "We couldn't save your answer. Check your connection and try again.";
     $("retry-upload").classList.remove("d-none");
+  }
+
+  // After a technical answer the server decides whether to ask a follow-up; wait for it (it never takes long:
+  // the server moves on by itself if the decision is slow)
+  function waitForNextQuestion() {
+    show("step-question");
+    $("phase-prep").classList.add("d-none");
+    $("phase-record").classList.add("d-none");
+    $("phase-upload").classList.remove("d-none");
+    $("retry-upload").classList.add("d-none");
+    $("upload-status").textContent = "Preparing your next question…";
+    let tries = 0;
+    const poll = async () => {
+      try {
+        state = await api(urls.state);
+        if (!state.waiting) { next(); return; }
+      } catch (e) { /* keep trying; temporary network problems are common */ }
+      if (++tries < 120) setTimeout(poll, 1500); else fail("The next question couldn't be loaded. Please reload this page.");
+    };
+    setTimeout(poll, 1000);
   }
 
   $("retry-upload").addEventListener("click", () => { $("retry-upload").classList.add("d-none"); sendUpload(); });

@@ -10,7 +10,7 @@ from .extensions import db, limiter
 from .forms import BulkSlotForm, CancelForm, JobForm, QuestionForm, SlotForm
 from .main import role_required
 from .models import Application, Interview, InterviewAnswer, InterviewQuestion, InterviewSlot, Job, User, utcnow
-from .services import interview_room, scheduling, storage
+from .services import interview_room, scheduling, scoring, storage
 from .services.analysis import queue_analysis, resume_file_name
 from .services.notifications import notify_application_status
 from .services.resume import skill_summary
@@ -156,8 +156,9 @@ def toggle_job(job_id):
 def application(app_id):
     app_row = db.get_or_404(Application, app_id)
     summary = skill_summary(app_row.parsed, app_row.job.skill_list) if app_row.parsed else None
+    nlp = scoring.interview_nlp_summary(app_row.interview) if app_row.interview else None
     return render_template("hr/application.html", a=app_row, labels=Application.STATUS_LABELS,
-                           hr_statuses=Application.HR_STATUSES, summary=summary)
+                           hr_statuses=Application.HR_STATUSES, summary=summary, nlp=nlp)
 
 
 @bp.post("/applications/<int:app_id>/status")
@@ -311,9 +312,11 @@ def questions(job_id):
             flash(f"A job can have at most {MAX_QUESTIONS} questions.", "warning")
         else:
             db.session.add(InterviewQuestion(job_id=job.id, position=len(job.questions), text=form.text.data.strip(),
-                                             category=form.category.data, answer_seconds=form.answer_seconds.data))
+                                             category=form.category.data, answer_seconds=form.answer_seconds.data,
+                                             reference_answer=(form.reference_answer.data or "").strip() or None))
             audit("question.added", job=job.title)
             db.session.commit()
+            interview_room.queue_missing_references(job)
             flash("Question added.", "success")
         return redirect(url_for("hr.questions", job_id=job.id))
     edit_forms = {q.id: QuestionForm(prefix=f"q{q.id}", obj=q) for q in job.questions}
@@ -330,9 +333,15 @@ def edit_question(question_id):
     q = _question(question_id)
     form = QuestionForm(prefix=f"q{q.id}")
     if form.validate_on_submit():
-        q.text, q.category, q.answer_seconds = form.text.data.strip(), form.category.data, form.answer_seconds.data
+        new_text = form.text.data.strip()
+        new_reference = (form.reference_answer.data or "").strip() or None
+        if new_text != q.text and new_reference == q.reference_answer:
+            new_reference = None  # the question changed: its old reference answer no longer fits
+        q.text, q.category, q.answer_seconds = new_text, form.category.data, form.answer_seconds.data
+        q.reference_answer = new_reference
         audit("question.edited", job=q.job.title, question_id=q.id)
         db.session.commit()
+        interview_room.queue_missing_references(q.job)
         flash("Question saved. Interviews that already started keep their original questions.", "success")
     else:
         flash(" ".join(e for errors in form.errors.values() for e in errors), "danger")
@@ -379,6 +388,7 @@ def default_questions(job_id):
         interview_room.ensure_questions(job)
         audit("question.defaults_created", job=job.title)
         db.session.commit()
+        interview_room.queue_missing_references(job)
         flash("Default questions created from the job's required skills. Review and edit them.", "success")
     return redirect(url_for("hr.questions", job_id=job.id))
 
@@ -399,3 +409,21 @@ def answer_media(answer_id):
     # conditional=True answers Range requests, so the video player can seek
     return send_file(io.BytesIO(data), mimetype=answer.media_type or "video/webm", conditional=True,
                      download_name=f"answer-{answer.position + 1}.{'mp4' if answer.media_type == 'video/mp4' else 'webm'}")
+
+
+@bp.post("/answers/<int:answer_id>/rescore")
+@hr_only
+@limiter.limit("60 per hour")
+def rescore_answer(answer_id):
+    answer = db.get_or_404(InterviewAnswer, answer_id)
+    if answer.transcript_status != InterviewAnswer.TRANSCRIPT_DONE:
+        flash("This answer has no transcript to score yet.", "warning")
+    else:
+        answer.score_status, answer.score_error, answer.similarity = InterviewAnswer.SCORE_PENDING, None, None
+        audit("answer.rescore_requested", target=answer.interview.application.candidate, answer_id=answer.id)
+        db.session.commit()
+        from .tasks import score_answer
+
+        score_answer(answer.id)
+        flash("The answer is being scored again.", "info")
+    return redirect(url_for("hr.application", app_id=answer.interview.application_id) + "#interview-results")

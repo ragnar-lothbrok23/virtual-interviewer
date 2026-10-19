@@ -65,6 +65,15 @@ class BaseConfig:
     FINISH_BUFFER_MINUTES = 20        # once started, an interview may run this long past its planned length
     MAX_INTEGRITY_EVENTS = 500        # per interview, so a misbehaving client can't flood the table
     GEMINI_TRANSCRIBE_MODEL = os.getenv("GEMINI_TRANSCRIBE_MODEL", "").strip()  # empty = use GEMINI_MODEL
+
+    # Answer scoring and adaptive questions (paper Sections 3.2-3.4)
+    FOLLOW_UP_THRESHOLD = 55          # technical answers scoring below this (similarity, 0-100) get a follow-up
+    MAX_FOLLOW_UPS = 3                # per interview
+    DECISION_TIMEOUT_SECONDS = 45     # if deciding on a follow-up takes longer, the interview just moves on
+    ANSWER_SIMILARITY_FLOOR = 0.55    # cosine similarity (answer vs reference answer) mapped onto 0-100
+    ANSWER_SIMILARITY_CEIL = 0.85
+    # Weights of the per-answer NLP score (content relevance, domain accuracy, fluency + semantic similarity)
+    NLP_WEIGHTS = {"relevance": 0.30, "accuracy": 0.30, "similarity": 0.20, "fluency": 0.20}
     GEMINI_INLINE_MEDIA_LIMIT = 18 * 1024 * 1024  # larger recordings go through the Gemini Files API
 
     # Sessions and cookies
