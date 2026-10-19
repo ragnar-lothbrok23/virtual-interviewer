@@ -122,6 +122,7 @@
             <span>Fluency {{ ans.fluency|int }}</span><span>Clarity {{ ans.clarity|int }}</span>
             <span title="Semantic similarity to the reference answer">Similarity {{ ans.similarity_score|int }}</span>
             <span class="text-muted">{% if ans.words_per_minute %}{{ ans.words_per_minute|int }} wpm · {% endif %}{{ ans.filler_count }} filler(s)</span>
+            {% if ans.scored_at %}<span class="text-muted ms-auto" title="Last scored">Scored {{ ans.scored_at|localtime('%d %b, %I:%M:%S %p') }}</span>{% endif %}
           </div>
           {% if ans.feedback %}
             <div class="mb-1">{{ ans.feedback.summary }}</div>
@@ -170,6 +171,7 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-{% set busy = a.is_analysing or (iv and iv.answers|selectattr('is_scoring')|list) %}
+{# 'iv' from the content block isn't visible here: blocks have their own scope #}
+{% set busy = a.is_analysing or (a.interview and a.interview.answers|selectattr('is_scoring')|list) %}
 {% if busy %}<script nonce="{{ csp_nonce() }}">setTimeout(() => location.reload(), 6000);</script>{% endif %}
 {% endblock %}

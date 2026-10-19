@@ -471,6 +471,7 @@ class InterviewAnswer(db.Model):
     score_status = db.Column(db.String(10))
     score_error = db.Column(db.Text)
     scored_at = db.Column(db.DateTime(timezone=True))
+    score_requested_at = db.Column(db.DateTime(timezone=True))  # when (re-)scoring was last queued
     similarity = db.Column(db.Float)  # cosine similarity to the reference answer
     similarity_score = db.Column(db.Float)  # 0-100
     relevance = db.Column(db.Float)  # 0-100 each, from the Gemini rubric
@@ -491,9 +492,10 @@ class InterviewAnswer(db.Model):
     def is_scoring(self):
         """Scoring is genuinely in progress (queued recently). Answers recorded before scoring existed have no status,
         and a job lost to a worker restart stays 'pending' forever; neither should show a spinner."""
-        if self.score_status != self.SCORE_PENDING or self.submitted_at is None:
+        requested = self.score_requested_at or self.submitted_at
+        if self.score_status != self.SCORE_PENDING or requested is None:
             return False
-        return utcnow() - as_utc(self.submitted_at) < timedelta(minutes=10)
+        return utcnow() - as_utc(requested) < timedelta(minutes=10)
 
     interview = db.relationship("Interview", back_populates="answers")
 

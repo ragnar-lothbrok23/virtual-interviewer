@@ -228,7 +228,7 @@ def submit(interview, position, data, duration_seconds):
     limit = answer.answer_seconds + current_app.config["ANSWER_GRACE_SECONDS"]
     answer.duration_seconds = None if reported is None else max(0.0, min(reported, float(limit)))
     answer.transcript_status = InterviewAnswer.TRANSCRIPT_PENDING
-    answer.score_status = InterviewAnswer.SCORE_PENDING
+    answer.score_status, answer.score_requested_at = InterviewAnswer.SCORE_PENDING, now
     if answer.late:
         log_event(interview, "late_answer", position)
     interview.current_position = position + 1

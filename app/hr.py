@@ -420,6 +420,7 @@ def rescore_answer(answer_id):
         flash("This answer has no transcript to score yet.", "warning")
     else:
         answer.score_status, answer.score_error, answer.similarity = InterviewAnswer.SCORE_PENDING, None, None
+        answer.score_requested_at = utcnow()
         audit("answer.rescore_requested", target=answer.interview.application.candidate, answer_id=answer.id)
         db.session.commit()
         from .tasks import score_answer

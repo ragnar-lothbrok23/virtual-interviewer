@@ -260,6 +260,7 @@ def test_scoring_prompt_carries_safety_rules(app, monkeypatch):
 
 
 ORIGINAL_SCORE = gemini.score_answer
+SPINNER = 'spinner-border spinner-border-sm me-1"></span>Scoring'  # the 'Scoring...' indicator
 
 
 def test_unscored_or_stuck_answers_offer_score_button_not_spinner(app, room, ai, login):
@@ -273,7 +274,7 @@ def test_unscored_or_stuck_answers_offer_score_button_not_spinner(app, room, ai,
     hr = login("hr@test.com")
     app_id = get(app, Interview, room.id).application_id
     page = hr.get(f"/hr/applications/{app_id}").get_data(as_text=True)
-    assert "Not scored yet" in page and "Score now" in page and "Scoring…" not in page
+    assert "Not scored yet" in page and "Score now" in page and SPINNER not in page
     with app.app_context():
         row = db.session.get(InterviewAnswer, a.id)
         row.score_status = "pending"  # queued 11 minutes ago and lost (e.g. the worker was restarted)
@@ -281,6 +282,28 @@ def test_unscored_or_stuck_answers_offer_score_button_not_spinner(app, room, ai,
     room.frozen.tick(11 * 60)
     hr = login("hr@test.com")
     page = hr.get(f"/hr/applications/{app_id}").get_data(as_text=True)
-    assert "Score now" in page and "Scoring…" not in page
+    assert "Score now" in page and SPINNER not in page
     hr.post(f"/hr/answers/{a.id}/rescore")
     assert answer_row(app, 0).is_scored
+
+
+def test_rescoring_an_old_answer_shows_progress_then_new_time(app, room, ai, login, monkeypatch):
+    started(room)
+    answer_question(room, 0)
+    a = answer_row(app, 0)
+    first_scored = a.scored_at
+    room.frozen.tick(3 * 3600)  # hours later, long after the answer was recorded
+    hr = login("hr@test.com")
+    app_id = get(app, Interview, room.id).application_id
+    import app.tasks as tasks
+    queued = []
+    monkeypatch.setattr(tasks, "score_answer", lambda answer_id: queued.append(answer_id))  # worker hasn't run yet
+    hr.post(f"/hr/answers/{a.id}/rescore")
+    page = hr.get(f"/hr/applications/{app_id}").get_data(as_text=True)
+    assert queued == [a.id]
+    assert SPINNER in page and "location.reload" in page and ">Re-score<" not in page
+    with app.app_context():
+        scoring.score(a.id)  # the worker runs
+    page = hr.get(f"/hr/applications/{app_id}").get_data(as_text=True)
+    assert SPINNER not in page and ">Re-score<" in page
+    assert answer_row(app, 0).scored_at > first_scored and "Scored " in page
