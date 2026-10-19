@@ -17,6 +17,27 @@
 <div class="row g-4 mt-1">
   <div class="col-lg-5">
     {{ match_summary(a, summary) }}
+    {% set iv = a.interview %}
+    {% if iv %}
+    <div class="card shadow-sm mb-3"><div class="card-body">
+      <h6 class="mb-2">Interview <span class="badge text-bg-{{ iv.status_color }}">{{ iv.status_label }}</span></h6>
+      <div class="small mb-2"><i class="bi bi-calendar-event me-1"></i>{{ iv.starts_at|localtime }} · {{ iv.duration_minutes }} min
+        {% if iv.reschedule_count %}· rescheduled {{ iv.reschedule_count }}×{% endif %}</div>
+      {% if iv.status == 'cancelled' %}<div class="small text-muted">Cancelled by {{ iv.cancelled_by }}{% if iv.cancel_reason %}: {{ iv.cancel_reason }}{% endif %}</div>{% endif %}
+      {% if iv.status == 'scheduled' %}
+      <form method="post" action="{{ url_for('hr.cancel_interview', interview_id=iv.id) }}" class="mt-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="input-group input-group-sm">
+          <input type="text" name="reason" maxlength="255" class="form-control" placeholder="Reason for the candidate (optional)">
+          <button class="btn btn-outline-danger">Cancel interview</button>
+        </div>
+      </form>
+      {% endif %}
+    </div></div>
+    {% elif a.status == 'shortlisted' %}
+    <div class="alert alert-light border small"><i class="bi bi-calendar me-1"></i>Shortlisted: the candidate can book an interview.
+      {% if not a.job.slots.count() %}<a href="{{ url_for('hr.slots', job_id=a.job.id) }}">Add interview slots</a> for this job first.{% endif %}</div>
+    {% endif %}
     <div class="card shadow-sm"><div class="card-body">
       <h6 class="mb-3">Decision</h6>
       {% if a.is_withdrawn %}

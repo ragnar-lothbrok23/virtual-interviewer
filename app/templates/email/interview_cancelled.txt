@@ -1,0 +1,8 @@
+Hi {{ user.name }},
+
+Your interview for {{ job.title }} on {{ when }} has been cancelled{% if by == 'candidate' %} as you requested{% endif %}.
+{% if reason %}Reason: {{ reason }}
+{% endif %}
+{% if by != 'candidate' %}If you're still shortlisted, you can book a new time here: {{ book_link }}{% else %}You can book a new time while you're shortlisted: {{ book_link }}{% endif %}
+
+The attached file removes the entry from your calendar.

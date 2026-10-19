@@ -10,6 +10,7 @@ from . import resume as resume_service
 from . import storage
 from .gemini import GeminiError
 from .notifications import notify, notify_application_received, notify_application_status
+from .scheduling import sync_with_status
 
 
 class UploadError(ValueError):
@@ -102,6 +103,7 @@ def run_analysis(application_id, retries_left=0):
         notify_application_received(application)
     else:
         notify_application_status(application, old_status)
+        sync_with_status(application)
     return application.analysis_status
 
 
@@ -132,6 +134,7 @@ def rescore_job(job_id, skills_changed):
         apply_auto_status(a)
         db.session.commit()
         notify_application_status(a, old_status)
+        sync_with_status(a)
         count += 1
     db.session.commit()
     return count

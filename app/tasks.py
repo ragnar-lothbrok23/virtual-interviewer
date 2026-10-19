@@ -9,7 +9,7 @@ import socket
 from datetime import datetime, timezone
 
 from flask import current_app, has_app_context
-from huey import MemoryHuey, RedisHuey, SqliteHuey
+from huey import MemoryHuey, RedisHuey, SqliteHuey, crontab
 
 from .config import get_config
 
@@ -108,6 +108,15 @@ def rescore_job_applications(job_id, skills_changed):
 
     with app_context():
         return rescore_job(job_id, skills_changed)
+
+
+@huey.periodic_task(crontab(minute="*/5"))
+def interview_housekeeping():
+    """Every 5 minutes: send due interview reminders and mark missed interviews."""
+    from .services.scheduling import mark_no_shows, send_due_reminders
+
+    with app_context():
+        return {"reminders": send_due_reminders(), "no_shows": mark_no_shows()}
 
 
 @huey.task()

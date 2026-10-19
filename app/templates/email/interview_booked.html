@@ -1,0 +1,9 @@
+{% extends "email/_layout.html" %}
+{% block body %}
+<p>Hi {{ user.name }},</p>
+<p>Your interview for <strong>{{ job.title }}</strong> is booked.</p>
+<p style="font-size:18px;margin:16px 0;"><strong>{{ when }}</strong> <span style="color:#6c757d;font-size:14px;">({{ interview.duration_minutes }} minutes, online)</span></p>
+{% with label="Open my interview page" %}{% include "email/_button.html" %}{% endwith %}
+<p>A calendar invite is attached. You can reschedule or cancel up to {{ (config.CHANGE_CUTOFF_MINUTES // 60) }} hours before the start.</p>
+{% include "email/_interview_tips.html" %}
+{% endblock %}

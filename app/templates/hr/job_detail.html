@@ -11,6 +11,7 @@
     {% if job.closes_at %}<div class="small text-muted mt-1"><i class="bi bi-clock me-1"></i>Deadline {{ job.closes_at|localtime }}</div>{% endif %}
   </div>
   <div class="text-end">
+    <a href="{{ url_for('hr.slots', job_id=job.id) }}" class="btn btn-sm btn-outline-primary mb-1"><i class="bi bi-calendar3 me-1"></i>Interview slots</a>
     <a href="{{ url_for('hr.edit_job', job_id=job.id) }}" class="btn btn-sm btn-outline-primary mb-1"><i class="bi bi-pencil me-1"></i>Edit job</a>
     <div class="small text-muted">Auto-shortlist at match score ≥ {{ threshold|int }}</div>
   </div>
@@ -27,7 +28,7 @@
   {% if applicants %}
   <div class="table-responsive">
     <table class="table table-hover mb-0 align-middle">
-      <thead class="table-light"><tr><th>#</th><th>Candidate</th><th style="width: 22%">Match score</th><th>Skills</th><th>Experience</th><th>Status</th><th></th></tr></thead>
+      <thead class="table-light"><tr><th>#</th><th>Candidate</th><th style="width: 22%">Match score</th><th>Skills</th><th>Experience</th><th>Status</th><th>Interview</th><th></th></tr></thead>
       <tbody>
         {% for a in applicants %}
         <tr class="{{ 'text-muted' if a.is_withdrawn }}">
@@ -45,6 +46,8 @@
           </td>
           <td class="small">{{ a.parsed.total_experience_years ~ ' yr' if a.parsed else '–' }}</td>
           <td>{{ status_badge(a) }}{% if a.status_source == 'hr' %} <i class="bi bi-person-check small text-muted" title="Decided by HR"></i>{% endif %}</td>
+          <td class="small">{% if a.interview %}<span class="badge text-bg-{{ a.interview.status_color }}">{{ a.interview.status_label }}</span>
+              {% if a.interview.is_active %}<div class="text-muted">{{ a.interview.starts_at|localtime('%d %b %I:%M %p') }}</div>{% endif %}{% else %}–{% endif %}</td>
           <td class="text-end"><a href="{{ url_for('hr.application', app_id=a.id) }}" class="btn btn-sm btn-outline-primary">Review</a></td>
         </tr>
         {% endfor %}

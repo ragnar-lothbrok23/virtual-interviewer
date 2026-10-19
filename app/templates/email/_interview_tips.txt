@@ -1,0 +1,1 @@
+Before the interview: use Chrome or Edge on a computer with a webcam and microphone, sit in a quiet room with light in front of you, and check your internet connection. The Join button opens {{ config.JOIN_EARLY_MINUTES }} minutes before the start.

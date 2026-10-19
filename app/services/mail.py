@@ -41,7 +41,8 @@ def _sender_address():
     return current_app.config["MAIL_USERNAME"] or "no-reply@localhost"
 
 
-def build_message(to, subject, template, reply_to=None, **context):
+def build_message(to, subject, template, reply_to=None, attachments=None, **context):
+    """attachments: list of dicts {filename, content_type ("type/subtype"), data (bytes)}."""
     context.setdefault("app_name", current_app.config["APP_NAME"])
     context.setdefault("base_url", current_app.config["APP_BASE_URL"])
     text = render_template(f"email/{template}.txt", **context)
@@ -56,17 +57,18 @@ def build_message(to, subject, template, reply_to=None, **context):
         "text": text,
         "html": html,
         "message_id": make_msgid(domain=sender.split("@")[-1] or "localhost"),
+        "attachments": list(attachments or []),
     }
 
 
-def send_email(to, subject, template, reply_to=None, **context):
+def send_email(to, subject, template, reply_to=None, attachments=None, **context):
     """Queue an email and record it in the email log. Returns the message dict.
 
     Call this after committing your own changes: it commits the log row so the worker can find it."""
     from ..models import EmailLog, User
     from ..tasks import deliver_email
 
-    message = build_message(to, subject, template, reply_to=reply_to, **context)
+    message = build_message(to, subject, template, reply_to=reply_to, attachments=attachments, **context)
     recipient = context.get("user")
     log = EmailLog(to_address=to, subject=subject, template=template, message_id=message["message_id"],
                    backend=current_app.config["MAIL_BACKEND"],
@@ -90,6 +92,15 @@ def to_mime(message):
     mime["Auto-Submitted"] = "auto-generated"  # tells mail servers not to send out-of-office replies
     mime.set_content(message["text"])
     mime.add_alternative(message["html"], subtype="html")
+    for attachment in message.get("attachments") or []:
+        maintype, _, subtype = attachment["content_type"].partition("/")
+        params = {}
+        if attachment["content_type"].startswith("text/calendar"):
+            # Lets Gmail/Outlook show "Add to calendar" / RSVP buttons for the invite
+            subtype, _, method = subtype.partition(";")
+            params = {"method": method.split("=", 1)[-1].strip() or "REQUEST"}
+        mime.add_attachment(attachment["data"], maintype=maintype, subtype=subtype.strip(),
+                            filename=attachment["filename"], params=params)
     return mime
 
 

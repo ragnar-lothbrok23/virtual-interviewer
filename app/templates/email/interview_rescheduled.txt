@@ -1,0 +1,9 @@
+Hi {{ user.name }},
+
+Your interview for {{ job.title }} has moved.
+
+New time: {{ when }} ({{ interview.duration_minutes }} minutes)
+Previous time: {{ old_when }}
+
+Interview page: {{ link }}
+The attached calendar invite updates your calendar entry.

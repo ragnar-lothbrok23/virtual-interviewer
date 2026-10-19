@@ -49,6 +49,14 @@ class BaseConfig:
     # Times are stored in UTC and shown / entered in this timezone
     APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Kolkata")
 
+    # Interview scheduling
+    BOOKING_MIN_NOTICE_MINUTES = 60   # candidates can't book a slot starting sooner than this
+    CHANGE_CUTOFF_MINUTES = 120       # reschedule / cancel allowed until this long before the start
+    MAX_RESCHEDULES = 2               # per interview
+    JOIN_EARLY_MINUTES = 10           # the join button opens this long before the start
+    NO_SHOW_GRACE_MINUTES = 15        # after the slot ends + this, an interview never started is a no-show
+    MAX_SLOTS_PER_BULK = 300          # safety limit for bulk slot creation
+
     # Sessions and cookies
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"

@@ -1,0 +1,9 @@
+{% extends "email/_layout.html" %}
+{% block body %}
+<p>Hi {{ user.name }},</p>
+<p>Your interview for <strong>{{ job.title }}</strong> has moved.</p>
+<p style="font-size:18px;margin:16px 0;"><strong>{{ when }}</strong> <span style="color:#6c757d;font-size:14px;">({{ interview.duration_minutes }} minutes)</span><br>
+  <span style="color:#6c757d;font-size:13px;text-decoration:line-through;">{{ old_when }}</span></p>
+{% with label="Open my interview page" %}{% include "email/_button.html" %}{% endwith %}
+<p>The attached calendar invite updates your calendar entry.</p>
+{% endblock %}

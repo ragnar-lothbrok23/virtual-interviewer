@@ -1,8 +1,9 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileAllowed, FileField, FileRequired
-from wtforms import (BooleanField, DateTimeLocalField, EmailField, PasswordField, SelectField, StringField,
-                     SubmitField, TextAreaField)
-from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional, ValidationError
+from wtforms import (BooleanField, DateField, DateTimeLocalField, EmailField, IntegerField, PasswordField,
+                     SelectField, SelectMultipleField, StringField, SubmitField, TextAreaField, TimeField)
+from wtforms.validators import (DataRequired, Email, EqualTo, InputRequired, Length, NumberRange, Optional,
+                                ValidationError)
 
 from .models import User
 from .services.security import MAX_PASSWORD_LENGTH, password_problems
@@ -175,3 +176,35 @@ class WithdrawForm(FlaskForm):
     confirm = BooleanField("I understand my application will be withdrawn",
                            validators=[DataRequired("Please confirm you want to withdraw.")])
     submit_withdraw = SubmitField("Withdraw application")
+
+
+# ---------- interview scheduling ----------
+
+DURATION_CHOICES = [(15, "15 minutes"), (20, "20 minutes"), (30, "30 minutes"), (45, "45 minutes"), (60, "60 minutes")]
+WEEKDAY_CHOICES = [(0, "Mon"), (1, "Tue"), (2, "Wed"), (3, "Thu"), (4, "Fri"), (5, "Sat"), (6, "Sun")]
+
+
+class SlotForm(FlaskForm):
+    starts_at = DateTimeLocalField("Start", format="%Y-%m-%dT%H:%M", validators=[DataRequired()])
+    duration = SelectField("Length", coerce=int, choices=DURATION_CHOICES, default=30)
+    capacity = IntegerField("Candidates at once", default=1, validators=[InputRequired(), NumberRange(1, 50)])
+    submit_single = SubmitField("Add slot")
+
+
+class BulkSlotForm(FlaskForm):
+    first_day = DateField("From", validators=[DataRequired()])
+    last_day = DateField("To", validators=[DataRequired()])
+    weekdays = SelectMultipleField("Days", coerce=int, choices=WEEKDAY_CHOICES, default=[0, 1, 2, 3, 4],
+                                   validators=[DataRequired("Choose at least one day.")])
+    day_start = TimeField("Daily from", validators=[DataRequired()])
+    day_end = TimeField("Daily until", validators=[DataRequired()])
+    duration = SelectField("Length", coerce=int, choices=DURATION_CHOICES, default=30)
+    gap = SelectField("Break between slots", coerce=int, default=0,
+                      choices=[(0, "None"), (5, "5 minutes"), (10, "10 minutes"), (15, "15 minutes")])
+    capacity = IntegerField("Candidates at once", default=1, validators=[InputRequired(), NumberRange(1, 50)])
+    submit_bulk = SubmitField("Create slots")
+
+
+class CancelForm(FlaskForm):
+    reason = StringField("Reason (shown to the candidate)", validators=[Optional(), Length(max=255)])
+    submit_cancel = SubmitField("Cancel")

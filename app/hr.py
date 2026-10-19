@@ -1,19 +1,22 @@
 import io
+from datetime import timedelta
 from urllib.parse import urlsplit
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, send_file, url_for
+from flask_login import current_user
 from sqlalchemy import case
 
 from .extensions import db, limiter
-from .forms import JobForm
+from .forms import BulkSlotForm, CancelForm, JobForm, SlotForm
 from .main import role_required
-from .models import Application, Job, User, utcnow
-from .services import storage
+from .models import Application, Interview, InterviewSlot, Job, User, utcnow
+from .services import scheduling, storage
 from .services.analysis import queue_analysis, resume_file_name
 from .services.notifications import notify_application_status
 from .services.resume import skill_summary
+from .services.scheduling import sync_with_status
 from .services.security import audit
-from .services.timeutil import from_local_naive, to_local
+from .services.timeutil import format_local, from_local_naive, to_local
 
 bp = Blueprint("hr", __name__, url_prefix="/hr")
 hr_only = role_required(User.ROLE_HR, User.ROLE_ADMIN)
@@ -175,6 +178,8 @@ def set_status(app_id):
               job=app_row.job.title, old_status=old_status, new_status=status)
     db.session.commit()
     notify_application_status(app_row, old_status)
+    if sync_with_status(app_row):
+        flash("Their scheduled interview was cancelled and the candidate informed.", "info")
     flash(f"{app_row.candidate.name} marked as {app_row.status_label.lower()}.", "success")
     return _back(url_for("hr.application", app_id=app_row.id))
 
@@ -211,3 +216,81 @@ def resume(app_id):
     mimetype = "application/pdf" if app_row.resume_kind == "pdf" else \
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     return send_file(io.BytesIO(data), as_attachment=True, download_name=resume_file_name(app_row), mimetype=mimetype)
+
+
+# ---------- interview slots and interviews ----------
+
+@bp.route("/jobs/<int:job_id>/slots", methods=["GET", "POST"])
+@hr_only
+def slots(job_id):
+    job = db.get_or_404(Job, job_id)
+    single, bulk = SlotForm(prefix="one"), BulkSlotForm(prefix="bulk")
+    actor = current_user._get_current_object()
+    if single.submit_single.data and single.validate_on_submit():
+        try:
+            slot = scheduling.create_slot(job, from_local_naive(single.starts_at.data), single.duration.data,
+                                          single.capacity.data, actor)
+            db.session.flush()
+            audit("slot.created", slot_id=slot.id, job=job.title, starts_at=slot.starts_at.isoformat())
+            db.session.commit()
+            flash(f"Slot added for {format_local(slot.starts_at)}.", "success")
+            return redirect(url_for("hr.slots", job_id=job.id))
+        except scheduling.SchedulingError as e:
+            db.session.rollback()
+            single.starts_at.errors.append(str(e))
+    elif bulk.submit_bulk.data and bulk.validate_on_submit():
+        try:
+            starts = scheduling.plan_bulk_slots(bulk.first_day.data, bulk.last_day.data, set(bulk.weekdays.data),
+                                                bulk.day_start.data, bulk.day_end.data, bulk.duration.data, bulk.gap.data)
+            created, skipped = scheduling.create_bulk_slots(job, starts, bulk.duration.data, bulk.capacity.data, actor)
+            audit("slot.bulk_created", job=job.title, created=created, skipped=skipped)
+            db.session.commit()
+            note = f" ({skipped} skipped: already existed or in the past)" if skipped else ""
+            flash(f"Created {created} slot(s){note}.", "success" if created else "warning")
+            return redirect(url_for("hr.slots", job_id=job.id))
+        except scheduling.SchedulingError as e:
+            db.session.rollback()
+            bulk.first_day.errors.append(str(e))
+    upcoming = (job.slots.filter(InterviewSlot.starts_at >= utcnow() - timedelta(hours=12))
+                .order_by(InterviewSlot.starts_at).all())
+    return render_template("hr/slots.html", job=job, slots=upcoming, single=single, bulk=bulk,
+                           cancel_form=CancelForm())
+
+
+@bp.post("/slots/<int:slot_id>/cancel")
+@hr_only
+def cancel_slot(slot_id):
+    slot = db.get_or_404(InterviewSlot, slot_id)
+    form = CancelForm()
+    if form.validate_on_submit():
+        affected = scheduling.cancel_slot(slot, current_user._get_current_object(), form.reason.data or "")
+        flash(f"Slot cancelled. {affected} candidate(s) were told and can book another time."
+              if affected else "Slot cancelled.", "info")
+    return redirect(url_for("hr.slots", job_id=slot.job_id))
+
+
+@bp.post("/interviews/<int:interview_id>/cancel")
+@hr_only
+def cancel_interview(interview_id):
+    interview = db.get_or_404(Interview, interview_id)
+    form = CancelForm()
+    if form.validate_on_submit() and scheduling.cancel(interview, by="hr", reason=form.reason.data or ""):
+        flash("Interview cancelled. The candidate was told and can book another time.", "info")
+    return redirect(url_for("hr.application", app_id=interview.application_id))
+
+
+@bp.route("/interviews")
+@hr_only
+def interviews():
+    view = request.args.get("view", "upcoming")
+    query = Interview.query
+    now = utcnow()
+    if view == "upcoming":
+        query = query.filter(Interview.status.in_(Interview.ACTIVE), Interview.starts_at >= now - timedelta(hours=3))
+        query = query.order_by(Interview.starts_at)
+    elif view in Interview.STATUS_LABELS:
+        query = query.filter(Interview.status == view).order_by(Interview.starts_at.desc())
+    else:
+        query = query.order_by(Interview.starts_at.desc())
+    page = query.paginate(per_page=50, error_out=False)
+    return render_template("hr/interviews.html", page=page, view=view, labels=Interview.STATUS_LABELS)

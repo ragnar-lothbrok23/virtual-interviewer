@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Interview · {{ a.job.title }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('candidate.application', app_id=a.id) }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> My application</a>
+<div class="row g-4 mt-1">
+  <div class="col-lg-7">
+    <div class="card shadow-sm"><div class="card-body p-4">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <div class="text-muted small">Interview for</div>
+          <h4 class="mb-1">{{ a.job.title }}</h4>
+        </div>
+        <span class="badge text-bg-{{ i.status_color }}">{{ i.status_label }}</span>
+      </div>
+      <div class="fs-5 my-3"><i class="bi bi-calendar-event me-2 text-primary"></i>{{ i.starts_at|localtime('%A, %d %b %Y · %I:%M %p') }}
+        <span class="text-muted small">({{ i.duration_minutes }} min)</span></div>
+
+      {% if i.status in ('scheduled', 'in_progress') %}
+        {% if can_join %}
+          <a href="{{ url_for('candidate.join_interview', interview_id=i.id) }}" class="btn btn-success btn-lg"><i class="bi bi-camera-video me-2"></i>Join interview</a>
+        {% else %}
+          <button class="btn btn-success btn-lg" disabled><i class="bi bi-camera-video me-2"></i>Join interview</button>
+          <div class="small text-muted mt-2">The Join button opens at {{ join_opens|localtime('%I:%M %p, %d %b') }}.</div>
+        {% endif %}
+        <div class="mt-3"><a href="{{ url_for('candidate.interview_calendar', interview_id=i.id) }}" class="small"><i class="bi bi-calendar-plus me-1"></i>Add to my calendar (.ics)</a></div>
+      {% elif i.status == 'cancelled' %}
+        <div class="alert alert-secondary small">Cancelled {{ i.cancelled_at|localtime }}{% if i.cancel_reason %}: {{ i.cancel_reason }}{% endif %}.</div>
+        {% if can_rebook %}<a href="{{ url_for('candidate.book_interview', app_id=a.id) }}" class="btn btn-primary">Book a new time</a>{% endif %}
+      {% elif i.status == 'no_show' %}
+        <div class="alert alert-danger small">You didn't join this interview. Please contact the recruiter if something went wrong.</div>
+      {% elif i.status == 'completed' %}
+        <div class="alert alert-success small">Interview completed. The recruiter will review your results.</div>
+      {% endif %}
+    </div></div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-3"><div class="card-body">
+      <h6>Before your interview</h6>
+      <ul class="small mb-0 ps-3">
+        <li>Use <strong>Chrome or Edge</strong> on a computer with a webcam and microphone.</li>
+        <li>Sit in a quiet room with light in front of you (not behind).</li>
+        <li>Check your internet connection; you'll get a camera and mic check before starting.</li>
+        <li>Answer in your own words. Leaving the interview window is recorded.</li>
+      </ul>
+    </div></div>
+
+    {% if i.status == 'scheduled' %}
+    <div class="card shadow-sm"><div class="card-body">
+      <h6>Need to change it?</h6>
+      {% if can_change %}
+        <p class="small text-muted">Changes are possible until {{ change_deadline|localtime }}.</p>
+        {% if can_reschedule %}
+          <a href="{{ url_for('candidate.reschedule_interview', interview_id=i.id) }}" class="btn btn-sm btn-outline-primary mb-2">Reschedule</a>
+        {% else %}
+          <p class="small text-muted">You've used all your reschedules.</p>
+        {% endif %}
+        <form method="post" action="{{ url_for('candidate.cancel_interview', interview_id=i.id) }}" class="mt-2">
+          {{ cancel_form.hidden_tag() }}
+          <div class="input-group input-group-sm">
+            {{ cancel_form.reason(class="form-control", placeholder="Reason (optional)") }}
+            <button class="btn btn-outline-danger">Cancel interview</button>
+          </div>
+        </form>
+      {% else %}
+        <p class="small text-muted mb-0">It's too close to the start to change this interview online. Please contact the recruiter.</p>
+      {% endif %}
+    </div></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+{% if i.status == 'scheduled' and not can_join %}
+<script nonce="{{ csp_nonce() }}">
+  // Refresh when the join window opens so the button becomes active
+  (function () {
+    const opensAt = {{ (join_opens.timestamp() * 1000)|int }};
+    const wait = opensAt - Date.now();
+    if (wait > 0 && wait < 6 * 3600 * 1000) setTimeout(() => location.reload(), wait + 1000);
+  })();
+</script>
+{% endif %}
+{% endblock %}

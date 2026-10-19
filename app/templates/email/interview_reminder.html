@@ -1,0 +1,8 @@
+{% extends "email/_layout.html" %}
+{% block body %}
+<p>Hi {{ user.name }},</p>
+<p>Reminder: your interview for <strong>{{ job.title }}</strong> starts <strong>{{ when }}</strong>.</p>
+{% with label="Open my interview page" %}{% include "email/_button.html" %}{% endwith %}
+{% include "email/_interview_tips.html" %}
+{% include "email/_preferences.html" %}
+{% endblock %}

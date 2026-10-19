@@ -291,6 +291,101 @@ class Application(db.Model):
                                          Application.candidate_id != self.candidate_id).all())
 
 
+class InterviewSlot(db.Model):
+    """A time window HR opens for a job. AI interviews run in parallel, so a slot can hold `capacity` candidates."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey("job.id", ondelete="CASCADE"), nullable=False, index=True)
+    starts_at = db.Column(db.DateTime(timezone=True), nullable=False, index=True)
+    duration_minutes = db.Column(db.Integer, nullable=False)
+    capacity = db.Column(db.Integer, nullable=False, default=1)
+    booked_count = db.Column(db.Integer, nullable=False, default=0)  # kept in step atomically (see scheduling.book)
+    cancelled_at = db.Column(db.DateTime(timezone=True))
+    created_by_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"))
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+    job = db.relationship("Job", backref=db.backref("slots", cascade="all, delete-orphan", lazy="dynamic"))
+    interviews = db.relationship("Interview", back_populates="slot")
+
+    __table_args__ = (
+        db.UniqueConstraint("job_id", "starts_at", name="uq_interview_slot_job_start"),
+        db.CheckConstraint("capacity >= 1", name="capacity_positive"),
+        db.CheckConstraint("booked_count >= 0 AND booked_count <= capacity", name="booked_within_capacity"),
+        db.CheckConstraint("duration_minutes BETWEEN 5 AND 240", name="duration_range"),
+    )
+
+    @property
+    def ends_at(self):
+        return as_utc(self.starts_at) + timedelta(minutes=self.duration_minutes)
+
+    @property
+    def seats_left(self):
+        return max(0, self.capacity - self.booked_count)
+
+    @property
+    def is_cancelled(self):
+        return self.cancelled_at is not None
+
+    @property
+    def is_past(self):
+        return as_utc(self.starts_at) <= utcnow()
+
+
+class Interview(db.Model):
+    """One candidate's booking for an application. Rescheduling moves it to another slot; cancelling keeps the row
+    (with history) so the candidate can book again later."""
+
+    STATUS_SCHEDULED = "scheduled"
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_COMPLETED = "completed"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_NO_SHOW = "no_show"
+    STATUS_LABELS = {STATUS_SCHEDULED: "Scheduled", STATUS_IN_PROGRESS: "In progress", STATUS_COMPLETED: "Completed",
+                     STATUS_CANCELLED: "Cancelled", STATUS_NO_SHOW: "Missed"}
+    STATUS_COLORS = {STATUS_SCHEDULED: "primary", STATUS_IN_PROGRESS: "info", STATUS_COMPLETED: "success",
+                     STATUS_CANCELLED: "secondary", STATUS_NO_SHOW: "danger"}
+    ACTIVE = (STATUS_SCHEDULED, STATUS_IN_PROGRESS)
+
+    id = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(db.Integer, db.ForeignKey("application.id", ondelete="CASCADE"), nullable=False,
+                               unique=True)
+    slot_id = db.Column(db.Integer, db.ForeignKey("interview_slot.id", ondelete="SET NULL"), index=True)
+    status = db.Column(db.String(16), nullable=False, default=STATUS_SCHEDULED, index=True)
+    starts_at = db.Column(db.DateTime(timezone=True), nullable=False, index=True)  # copied from the slot
+    duration_minutes = db.Column(db.Integer, nullable=False)
+    booked_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    reschedule_count = db.Column(db.Integer, nullable=False, default=0)
+    cancelled_at = db.Column(db.DateTime(timezone=True))
+    cancelled_by = db.Column(db.String(12))  # candidate / hr / system
+    cancel_reason = db.Column(db.String(255))
+    reminder_24h_sent_at = db.Column(db.DateTime(timezone=True))
+    reminder_1h_sent_at = db.Column(db.DateTime(timezone=True))
+    calendar_sequence = db.Column(db.Integer, nullable=False, default=0)  # .ics SEQUENCE, bumped on every change
+    started_at = db.Column(db.DateTime(timezone=True))
+    completed_at = db.Column(db.DateTime(timezone=True))
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    application = db.relationship("Application", backref=db.backref("interview", uselist=False,
+                                                                    cascade="all, delete-orphan"))
+    slot = db.relationship("InterviewSlot", back_populates="interviews")
+
+    @property
+    def ends_at(self):
+        return as_utc(self.starts_at) + timedelta(minutes=self.duration_minutes)
+
+    @property
+    def is_active(self):
+        return self.status in self.ACTIVE
+
+    @property
+    def status_label(self):
+        return self.STATUS_LABELS.get(self.status, self.status)
+
+    @property
+    def status_color(self):
+        return self.STATUS_COLORS.get(self.status, "light")
+
+
 class EmailLog(db.Model):
     """One row per outgoing email, so delivery problems are visible to admins. Bodies are not stored
     (they contain single-use login links)."""

@@ -87,6 +87,18 @@ enables secure cookies and HTTPS enforcement.
   (one AI request each). HR decisions are never overwritten.
 - After upgrading from a version without encryption: `venv\Scriptslask --app run encrypt-existing-resumes`.
 
+## Interview scheduling
+
+- HR opens interview slots per job (Job → **Interview slots**), one at a time or in bulk (date range, weekdays,
+  daily hours, length, break). AI interviews run in parallel, so a slot can hold several candidates.
+- Shortlisted candidates book from their application page (at least 1 hour ahead), and can reschedule up to
+  2 times or cancel until 2 hours before. Booking is race-safe: the last seat can't be taken twice.
+- Booking, rescheduling and cancellation emails carry a calendar invite (.ics); updates replace the same entry.
+- The worker's periodic job (every 5 minutes) sends 24-hour and 1-hour reminders and marks missed interviews.
+  **The worker must be running** for reminders to go out.
+- If an application stops being shortlisted (withdrawn, rejected, back to review), its interview is cancelled
+  automatically and the seat freed.
+
 ## Roles and accounts
 
 | Role | How the account is created | Can do |
@@ -107,15 +119,15 @@ app/
   config.py        per-environment settings
   extensions.py    db, migrations, login, CSRF, rate limiter, security headers
   tasks.py         background jobs (Huey)
-  models.py        User, AuditLog, EmailLog, Notification, Job, Application
+  models.py        User, AuditLog, EmailLog, Notification, Job, Application, InterviewSlot, Interview
   auth.py          sign up, log in/out, email verification, password reset, invitations, consent
   account.py       profile, email and password changes, data export, account deletion
   admin.py         user management, email log and audit log
   notifications.py in-app notifications (bell icon)
   candidate.py     job browsing, resume upload, results
   hr.py            job management, applicant ranking and review
-  services/        Gemini, resume matching, mail (Gmail SMTP), notifications, tokens/password policy/audit,
-                   account operations
+  services/        Gemini, resume matching and storage, scheduling and calendar invites, mail (Gmail SMTP),
+                   notifications, tokens/password policy/audit, account operations
   templates/       Jinja2 + Bootstrap pages
 migrations/        Alembic migration scripts
 tests/             pytest suite

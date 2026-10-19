@@ -1,0 +1,10 @@
+Hi {{ user.name }},
+
+Your interview for {{ job.title }} is booked.
+
+When: {{ when }} ({{ interview.duration_minutes }} minutes)
+Where: online, from your interview page: {{ link }}
+
+A calendar invite is attached. You can reschedule or cancel up to {{ (config.CHANGE_CUTOFF_MINUTES // 60) }} hours before the start.
+
+{% include "email/_interview_tips.txt" %}

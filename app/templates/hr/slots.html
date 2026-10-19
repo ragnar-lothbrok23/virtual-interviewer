@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import field %}
+{% block title %}Interview slots · {{ job.title }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('hr.job_detail', job_id=job.id) }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> {{ job.title }}</a>
+<h3 class="mt-2 mb-1">Interview slots</h3>
+<p class="text-muted small">Shortlisted candidates book these times. Interviews are AI-led, so several candidates can share a slot
+  ("candidates at once"). Times are in {{ config.APP_TIMEZONE }}.</p>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      {% if slots %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 align-middle">
+          <thead class="table-light"><tr><th>When</th><th>Length</th><th>Booked</th><th>Candidates</th><th></th></tr></thead>
+          <tbody>
+            {% for s in slots %}
+            <tr class="{{ 'text-muted' if s.is_cancelled or s.is_past }}">
+              <td class="text-nowrap">{{ s.starts_at|localtime('%a %d %b, %I:%M %p') }}
+                {% if s.is_cancelled %}<span class="badge text-bg-secondary">Cancelled</span>{% elif s.is_past %}<span class="badge text-bg-light border">Past</span>{% endif %}</td>
+              <td>{{ s.duration_minutes }} min</td>
+              <td>{{ s.booked_count }}/{{ s.capacity }}</td>
+              <td class="small">
+                {% for iv in s.interviews if iv.is_active %}
+                  <a href="{{ url_for('hr.application', app_id=iv.application_id) }}">{{ iv.application.candidate.name }}</a>{{ ', ' if not loop.last }}
+                {% else %}<span class="text-muted">–</span>{% endfor %}
+              </td>
+              <td class="text-end">
+                {% if not s.is_cancelled and not s.is_past %}
+                <form method="post" action="{{ url_for('hr.cancel_slot', slot_id=s.id) }}" class="d-inline"
+                      data-confirm="{{ s.booked_count }}">
+                  {{ cancel_form.hidden_tag() }}
+                  <input type="hidden" name="reason" value="The recruiter cancelled this interview time.">
+                  <button class="btn btn-sm btn-outline-danger" title="Cancel slot{{ ' and notify booked candidates' if s.booked_count }}">Cancel</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body text-muted">No upcoming slots. Create some with the forms on the right.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-4"><div class="card-body">
+      <h5 class="mb-3">Create many slots</h5>
+      <form method="post" novalidate>
+        {{ bulk.hidden_tag() }}
+        <div class="row g-2">
+          <div class="col-6">{{ field(bulk.first_day) }}</div>
+          <div class="col-6">{{ field(bulk.last_day) }}</div>
+          <div class="col-6">{{ field(bulk.day_start) }}</div>
+          <div class="col-6">{{ field(bulk.day_end) }}</div>
+        </div>
+        <div class="mb-3">
+          <div class="form-label">{{ bulk.weekdays.label.text }}</div>
+          {% for value, label in bulk.weekdays.choices %}
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="checkbox" name="{{ bulk.weekdays.name }}" id="wd{{ value }}" value="{{ value }}"
+                     {{ 'checked' if value in (bulk.weekdays.data or []) }}>
+              <label class="form-check-label small" for="wd{{ value }}">{{ label }}</label>
+            </div>
+          {% endfor %}
+          {% for e in bulk.weekdays.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="row g-2">
+          <div class="col-4"><label class="form-label">{{ bulk.duration.label.text }}</label>{{ bulk.duration(class="form-select") }}</div>
+          <div class="col-4"><label class="form-label">{{ bulk.gap.label.text }}</label>{{ bulk.gap(class="form-select") }}</div>
+          <div class="col-4">{{ field(bulk.capacity) }}</div>
+        </div>
+        {{ bulk.submit_bulk(class="btn btn-primary w-100 mt-2") }}
+      </form>
+    </div></div>
+
+    <div class="card shadow-sm"><div class="card-body">
+      <h5 class="mb-3">Add one slot</h5>
+      <form method="post" novalidate>
+        {{ single.hidden_tag() }}
+        {{ field(single.starts_at) }}
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label">{{ single.duration.label.text }}</label>{{ single.duration(class="form-select") }}</div>
+          <div class="col-6">{{ field(single.capacity) }}</div>
+        </div>
+        {{ single.submit_single(class="btn btn-outline-primary w-100 mt-2") }}
+      </form>
+    </div></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+  document.querySelectorAll("form[data-confirm]").forEach(f => f.addEventListener("submit", e => {
+    const booked = Number(f.dataset.confirm);
+    const msg = booked ? `Cancel this slot? ${booked} booked candidate(s) will be emailed and can book another time.`
+                       : "Cancel this slot?";
+    if (!confirm(msg)) e.preventDefault();
+  }));
+</script>
+{% endblock %}

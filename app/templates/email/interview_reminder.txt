@@ -1,0 +1,8 @@
+Hi {{ user.name }},
+
+Reminder: your interview for {{ job.title }} starts {{ when }}.
+
+Join from your interview page: {{ link }}
+
+{% include "email/_interview_tips.txt" %}
+{% include "email/_preferences.txt" %}

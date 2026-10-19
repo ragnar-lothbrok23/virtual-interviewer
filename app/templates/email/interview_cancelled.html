@@ -1,0 +1,9 @@
+{% extends "email/_layout.html" %}
+{% block body %}
+<p>Hi {{ user.name }},</p>
+<p>Your interview for <strong>{{ job.title }}</strong> on <strong>{{ when }}</strong> has been cancelled{% if by == 'candidate' %} as you requested{% endif %}.</p>
+{% if reason %}<p style="color:#495057;">Reason: {{ reason }}</p>{% endif %}
+<p>If you're still shortlisted, you can book a new time.</p>
+{% with link=book_link, label="Book a new time" %}{% include "email/_button.html" %}{% endwith %}
+<p style="font-size:13px;color:#6c757d;">The attached file removes the entry from your calendar.</p>
+{% endblock %}
