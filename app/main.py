@@ -61,6 +61,13 @@ def terms():
     return render_template("legal/terms.html", version=current_app.config["PRIVACY_POLICY_VERSION"])
 
 
+@bp.route("/favicon.ico")
+@limiter.exempt
+def favicon():
+    """Browsers request /favicon.ico regardless of the <link rel="icon"> tag."""
+    return redirect(url_for("static", filename="favicon.svg"), code=301)
+
+
 @bp.route("/healthz")
 @limiter.exempt
 @csrf.exempt

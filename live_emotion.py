@@ -36,37 +36,80 @@ def equalise(frame):
 class Analyzer(threading.Thread):
     """Runs DeepFace on the newest frame in the background so the video stays smooth."""
 
+    # yunet is fast but misses faces in dim or backlit rooms; retinaface is slower but far more robust
+    DETECTORS = ("yunet", "retinaface")
+
     def __init__(self):
         super().__init__(daemon=True)
         self.frame = None
-        self.result = None  # (region, raw scores, smoothed scores, ms)
+        self.result = None  # (region, raw scores, smoothed scores, ms, detector)
         self.smoothed = None
         self.lock = threading.Lock()
         self.running = True
         self.ready = False
+        self.stage = "Starting…"  # shown in the window while loading
+        self.error = None  # any unexpected failure is shown instead of hanging on "Loading"
+        self.started = time.time()
+
+    def _preload(self, DeepFace):
+        """Load every model once up front, so the first frames aren't silently slow."""
+        import numpy as np
+
+        blank = np.zeros((240, 320, 3), dtype=np.uint8)
+        for detector in self.DETECTORS:
+            self.stage = f"Loading face detector ({detector})…"
+            try:
+                DeepFace.extract_faces(blank, detector_backend=detector, enforce_detection=False)
+            except Exception:
+                pass  # some detectors complain about a blank image; the model is loaded anyway
+        self.stage = "Loading emotion model…"
+        DeepFace.analyze(blank, actions=["emotion"], detector_backend="skip", enforce_detection=False, silent=True)
+
+    def _analyse(self, DeepFace, frame):
+        for detector in self.DETECTORS:
+            try:
+                face = DeepFace.analyze(frame, actions=["emotion"], detector_backend=detector,
+                                        enforce_detection=True, silent=True)[0]
+                return face, detector
+            except ValueError:
+                continue  # no face with this detector; try the next one
+        return None, None
 
     def run(self):
-        from deepface import DeepFace
-
-        while self.running:
-            with self.lock:
-                frame = None if self.frame is None else self.frame.copy()
-            if frame is None:
-                time.sleep(0.05)
-                continue
-            t = time.time()
+        try:
+            self.stage = "Loading DeepFace / TensorFlow…"
             try:
-                face = DeepFace.analyze(equalise(frame), actions=["emotion"], detector_backend="yunet",
-                                        enforce_detection=True, silent=True)[0]
-                raw = {e: float(face["emotion"][e]) for e in EMOTIONS}
-                if self.smoothed is None:
-                    self.smoothed = raw
+                from deepface import DeepFace
+            except ModuleNotFoundError:
+                raise RuntimeError(
+                    f"DeepFace isn't installed for this Python ({sys.executable}, {sys.version.split()[0]}). "
+                    "Run it with the project's environment:  venv\\Scripts\\python live_emotion.py") from None
+
+            self._preload(DeepFace)
+            self.stage = "Waiting for camera…"
+            while self.running:
+                with self.lock:
+                    frame = None if self.frame is None else self.frame.copy()
+                if frame is None:
+                    time.sleep(0.05)
+                    continue
+                t = time.time()
+                face, detector = self._analyse(DeepFace, equalise(frame))
+                if face is None:
+                    self.result = None  # no face this frame
                 else:
-                    self.smoothed = {e: SMOOTHING * raw[e] + (1 - SMOOTHING) * self.smoothed[e] for e in EMOTIONS}
-                self.result = (face["region"], raw, dict(self.smoothed), (time.time() - t) * 1000)
-            except ValueError:
-                self.result = None  # no face this frame
-            self.ready = True
+                    raw = {e: float(face["emotion"][e]) for e in EMOTIONS}
+                    if self.smoothed is None:
+                        self.smoothed = raw
+                    else:
+                        self.smoothed = {e: SMOOTHING * raw[e] + (1 - SMOOTHING) * self.smoothed[e] for e in EMOTIONS}
+                    self.result = (face["region"], raw, dict(self.smoothed), (time.time() - t) * 1000, detector)
+                self.ready = True
+        except Exception as e:  # never die silently
+            import traceback
+
+            traceback.print_exc()
+            self.error = f"{type(e).__name__}: {e}"
 
 
 class App:
@@ -124,13 +167,18 @@ class App:
 
     def draw(self, frame):
         res = self.analyzer.result
-        if not self.analyzer.ready:
-            self.headline.config(text="Loading model…", fg="white")
+        if self.analyzer.error:
+            self.headline.config(text="Error", fg="#e66")
+            self.sub.config(text=self.analyzer.error[:300] + "\n(details in the terminal)")
+        elif not self.analyzer.ready:
+            waited = time.time() - self.analyzer.started
+            self.headline.config(text="Loading…", fg="white")
+            self.sub.config(text=f"{self.analyzer.stage}  ({waited:.0f}s)\nThe first start can take up to a minute.")
         elif res is None:
             self.headline.config(text="No face", fg="#e66")
             self.sub.config(text="Face the camera with light in front of you")
         else:
-            region, raw, smooth, ms = res
+            region, raw, smooth, ms, detector = res
             top = max(smooth, key=smooth.get)
             color = COLORS[top]
             x, y, w, h = region["x"], region["y"], region["w"], region["h"]
@@ -138,7 +186,7 @@ class App:
             cv2.rectangle(frame, (x, y), (x + w, y + h), bgr, 2)
             cv2.putText(frame, f"{top} {smooth[top]:.0f}%", (x, max(20, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, bgr, 2)
             self.headline.config(text=top.capitalize(), fg=color)
-            self.sub.config(text=f"This frame: {max(raw, key=raw.get)}  ·  {ms:.0f} ms per analysis")
+            self.sub.config(text=f"This frame: {max(raw, key=raw.get)}  ·  {ms:.0f} ms  ·  detector: {detector}")
             for e in EMOTIONS:
                 canvas, value = self.bars[e]
                 canvas.delete("all")
@@ -161,7 +209,7 @@ class App:
             self.status.config(text="No face to snapshot", fg="#e66")
             return
         SNAP_DIR.mkdir(exist_ok=True)
-        _, raw, smooth, _ = res
+        _, raw, smooth, _, _ = res
         top = max(raw, key=raw.get)
         stamp = datetime.now().strftime("%H%M%S")
         cv2.imwrite(str(SNAP_DIR / f"{stamp}_{top}.jpg"), self.last_frame)

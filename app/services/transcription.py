@@ -1,0 +1,37 @@
+"""Background transcription of recorded interview answers."""
+from flask import current_app
+
+from ..extensions import db
+from ..models import InterviewAnswer
+from . import gemini, storage
+from .gemini import GeminiError
+
+
+def run_transcription(answer_id, retries_left=0):
+    """Transcribe one answer. Raises GeminiError for retryable failures while retries remain; otherwise records the
+    outcome on the answer. Returns the final transcript status."""
+    answer = db.session.get(InterviewAnswer, answer_id)
+    if answer is None or not answer.media_path:
+        return None
+    try:
+        media = storage.read_resume(answer.media_path)
+    except storage.StorageError as e:
+        answer.transcript_status, answer.transcript_error = InterviewAnswer.TRANSCRIPT_FAILED, str(e)
+        db.session.commit()
+        return answer.transcript_status
+    try:
+        result = gemini.transcribe(media, answer.media_type or "video/webm")
+    except GeminiError as e:
+        if e.retryable and retries_left > 0:
+            answer.transcript_error = f"{e} (retrying automatically)"
+            db.session.commit()
+            raise
+        current_app.logger.error("Transcription of answer %s failed: %s", answer.id, e)
+        answer.transcript_status, answer.transcript_error = InterviewAnswer.TRANSCRIPT_FAILED, str(e)
+        db.session.commit()
+        return answer.transcript_status
+    answer.transcript = result["transcript"]
+    answer.speech_detected = result["speech_detected"]
+    answer.transcript_status, answer.transcript_error = InterviewAnswer.TRANSCRIPT_DONE, None
+    db.session.commit()
+    return answer.transcript_status

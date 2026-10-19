@@ -49,6 +49,7 @@ venv\Scripts\flask --app run queue-check                     # verify the worker
 venv\Scripts\pytest                     # SQLite
 venv\Scripts\pytest --postgres          # real PostgreSQL (embedded, no install needed)
 venv\Scripts\pytest --cov=app           # with coverage
+venv\Scripts\pytest --e2e               # also run real-browser tests (Chrome, simulated camera/mic)
 ```
 
 Tests never call the real Gemini API; it is replaced by a deterministic fake.
@@ -98,6 +99,20 @@ enables secure cookies and HTTPS enforcement.
   **The worker must be running** for reminders to go out.
 - If an application stops being shortlisted (withdrawn, rejected, back to review), its interview is cancelled
   automatically and the seat freed.
+
+## Interview room
+
+- Each job has an ordered question list (Job → **Questions**); if none is set, defaults are generated from the
+  job's skills when the first interview starts. An interview keeps the questions it started with.
+- Candidates join from 10 minutes before their slot: consent → camera/microphone/browser/network check → for each
+  question, reading time then a timed answer recorded on camera. Answers upload as they go and are stored
+  encrypted; the worker transcribes them with Gemini (one request per answer).
+- Progress is kept on the server: after a crash or dropped connection the candidate rejoins and continues.
+  Tab switches, focus loss, reconnects, restarted questions and late answers are recorded for HR.
+- HR sees each answer's video, transcript and timing, plus an integrity timeline, on the applicant's page.
+- Browsers only allow camera and microphone on `https://` sites or `localhost`.
+- Development only: `venv\Scriptslask --app run dev-interview-soon <interview id>` moves a booked interview to
+  start in 5 minutes so the room can be tried immediately.
 
 ## Roles and accounts
 

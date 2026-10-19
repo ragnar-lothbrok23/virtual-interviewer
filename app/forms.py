@@ -208,3 +208,11 @@ class BulkSlotForm(FlaskForm):
 class CancelForm(FlaskForm):
     reason = StringField("Reason (shown to the candidate)", validators=[Optional(), Length(max=255)])
     submit_cancel = SubmitField("Cancel")
+
+
+class QuestionForm(FlaskForm):
+    text = TextAreaField("Question", validators=[DataRequired(), Length(min=10, max=1000)], render_kw={"rows": 2})
+    category = SelectField("Type", choices=[("technical", "Technical"), ("behavioral", "Behavioural"),
+                                            ("situational", "Situational")])
+    answer_seconds = IntegerField("Answer time (seconds)", default=120, validators=[InputRequired(), NumberRange(30, 600)])
+    submit_question = SubmitField("Save")

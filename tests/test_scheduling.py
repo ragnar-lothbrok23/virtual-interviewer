@@ -399,7 +399,7 @@ def test_join_window(app, booked, candidate_client, login):
     with freeze_time(start - timedelta(minutes=5)):
         candidate_client = login("cand@test.com")
         response = candidate_client.get(f"/candidate/interviews/{interview_id}/join")
-        assert response.status_code == 200 and b"Interview room" in response.data
+        assert response.status_code == 200 and b"Before we start" in response.data  # the interview room
         page = candidate_client.get(f"/candidate/interviews/{interview_id}").get_data(as_text=True)
         assert "disabled" not in page.split("Join interview")[0][-200:]
     with freeze_time(start + timedelta(minutes=31)):
@@ -455,4 +455,4 @@ def test_housekeeping_task_runs(app):
     from app.tasks import interview_housekeeping
 
     with app.app_context():
-        assert interview_housekeeping.call_local() == {"reminders": 0, "no_shows": 0}
+        assert interview_housekeeping.call_local() == {"reminders": 0, "no_shows": 0, "timed_out": 0}

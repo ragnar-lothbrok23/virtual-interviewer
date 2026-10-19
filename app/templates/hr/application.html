@@ -74,6 +74,56 @@
     {% endif %}
   </div>
 </div>
+
+{% if iv and iv.answers %}
+<h5 class="mt-4 mb-3" id="interview-results">Interview answers
+  <span class="small text-muted fw-normal">{{ iv.answers|selectattr('is_submitted')|list|length }} of {{ iv.question_count }} answered
+  {% if iv.end_reason == 'timed_out' %}· <span class="text-danger">timed out</span>{% endif %}</span></h5>
+<div class="row g-4">
+  <div class="col-lg-8">
+    {% for ans in iv.answers %}
+    <div class="card shadow-sm mb-3"><div class="card-body">
+      <div class="d-flex justify-content-between">
+        <div class="fw-semibold">Q{{ ans.position + 1 }}. {{ ans.question_text }}</div>
+        <span class="badge text-bg-light border align-self-start">{{ ans.category }}</span>
+      </div>
+      <div class="small text-muted mb-2">
+        {% if ans.is_submitted %}{{ '%.0f'|format(ans.duration_seconds or 0) }} s of {{ ans.answer_seconds }} s{% else %}Not answered{% endif %}
+        {% if ans.attempts > 1 %}· <span class="text-warning">shown {{ ans.attempts }}× (reconnect)</span>{% endif %}
+        {% if ans.late %}· <span class="text-danger">late</span>{% endif %}
+      </div>
+      {% if ans.media_path %}
+      <video class="w-100 rounded bg-dark mb-2" style="max-height: 320px" controls preload="metadata"
+             src="{{ url_for('hr.answer_media', answer_id=ans.id) }}"></video>
+      {% endif %}
+      {% if ans.transcript_status == 'done' %}
+        {% if ans.speech_detected %}<blockquote class="small mb-0 border-start border-3 ps-3">{{ ans.transcript }}</blockquote>
+        {% else %}<div class="small text-muted fst-italic">No speech detected in this answer.</div>{% endif %}
+      {% elif ans.transcript_status == 'failed' %}
+        <div class="small text-danger">Transcription failed: {{ ans.transcript_error }}</div>
+      {% elif ans.is_submitted %}
+        <div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Transcribing…</div>
+      {% endif %}
+    </div></div>
+    {% endfor %}
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm"><div class="card-body">
+      <h6>Integrity timeline</h6>
+      {% set evs = iv.events.all() %}
+      {% set flagged = evs|selectattr('flagged')|list %}
+      <div class="small mb-2">{% if flagged %}<span class="badge text-bg-warning">{{ flagged|length }} flag(s)</span>{% else %}<span class="badge text-bg-success">No flags</span>{% endif %}</div>
+      <ul class="list-unstyled small mb-0">
+        {% for e in evs %}
+        <li class="mb-1 {{ 'text-warning-emphasis fw-semibold' if e.flagged }}">
+          <span class="text-muted">{{ e.created_at|localtime('%I:%M:%S %p') }}</span> · {{ e.label }}{% if e.position is not none %} (Q{{ e.position + 1 }}){% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </div></div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 {% if a.is_analysing %}<script nonce="{{ csp_nonce() }}">setTimeout(() => location.reload(), 5000);</script>{% endif %}

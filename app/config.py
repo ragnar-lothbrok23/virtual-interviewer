@@ -57,6 +57,16 @@ class BaseConfig:
     NO_SHOW_GRACE_MINUTES = 15        # after the slot ends + this, an interview never started is a no-show
     MAX_SLOTS_PER_BULK = 300          # safety limit for bulk slot creation
 
+    # Interview room
+    PREP_SECONDS = 20                 # reading time before recording starts automatically
+    DEFAULT_ANSWER_SECONDS = 120      # answer time limit for generated questions
+    ANSWER_GRACE_SECONDS = 15         # uploads this much after the limit are still on time (network delay)
+    MAX_ANSWER_UPLOAD = 60 * 1024 * 1024  # bytes per recorded answer
+    FINISH_BUFFER_MINUTES = 20        # once started, an interview may run this long past its planned length
+    MAX_INTEGRITY_EVENTS = 500        # per interview, so a misbehaving client can't flood the table
+    GEMINI_TRANSCRIBE_MODEL = os.getenv("GEMINI_TRANSCRIBE_MODEL", "").strip()  # empty = use GEMINI_MODEL
+    GEMINI_INLINE_MEDIA_LIMIT = 18 * 1024 * 1024  # larger recordings go through the Gemini Files API
+
     # Sessions and cookies
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"

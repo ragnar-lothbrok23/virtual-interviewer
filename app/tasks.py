@@ -110,13 +110,23 @@ def rescore_job_applications(job_id, skills_changed):
         return rescore_job(job_id, skills_changed)
 
 
+@huey.task(retries=_cfg.ANALYSIS_RETRIES, retry_delay=_cfg.ANALYSIS_RETRY_DELAY, context=True)
+def transcribe_answer(answer_id, task=None):
+    """Transcribe one recorded interview answer with Gemini. Temporary AI errors are retried."""
+    from .services.transcription import run_transcription
+
+    with app_context():
+        return run_transcription(answer_id, retries_left=task.retries if task is not None else 0)
+
+
 @huey.periodic_task(crontab(minute="*/5"))
 def interview_housekeeping():
-    """Every 5 minutes: send due interview reminders and mark missed interviews."""
+    """Every 5 minutes: send due interview reminders, mark missed interviews, close abandoned ones."""
+    from .services.interview_room import expire_stale
     from .services.scheduling import mark_no_shows, send_due_reminders
 
     with app_context():
-        return {"reminders": send_due_reminders(), "no_shows": mark_no_shows()}
+        return {"reminders": send_due_reminders(), "no_shows": mark_no_shows(), "timed_out": expire_stale()}
 
 
 @huey.task()

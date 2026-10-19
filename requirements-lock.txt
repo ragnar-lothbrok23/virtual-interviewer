@@ -41,6 +41,7 @@ gdown==6.4.2
 google-auth==2.62.0
 google-genai==2.31.0
 google-pasta==0.2.0
+greenlet==3.5.6
 grpcio==1.84.0
 gunicorn==26.2.0
 h11==0.16.0
@@ -77,6 +78,7 @@ pandas==3.0.6
 pgserver==0.1.4
 pillow==13.0.0
 platformdirs==4.13.3
+playwright==1.64.0
 pluggy==1.7.0
 protobuf==7.36.2
 psutil==7.2.2
@@ -87,6 +89,7 @@ pyasn1_modules==0.4.2
 pycparser==3.11
 pydantic==2.14.1
 pydantic_core==2.50.1
+pyee==13.0.1
 Pygments==2.21.0
 pyparsing==3.3.3
 pypdf==6.21.1

@@ -85,6 +85,20 @@ def export_user_data(user):
             }
             for a in user.applications
         ],
+        "interviews": [
+            {
+                "job_title": a.job.title, "status": a.interview.status, "starts_at": iso(a.interview.starts_at),
+                "started_at": iso(a.interview.started_at), "completed_at": iso(a.interview.completed_at),
+                "recording_consent_at": iso(a.interview.recording_consent_at),
+                "answers": [
+                    {"question": ans.question_text, "submitted_at": iso(ans.submitted_at),
+                     "duration_seconds": ans.duration_seconds, "transcript": ans.transcript,
+                     "recording_file": f"recordings/{a.interview.id}-q{ans.position + 1}.{_ext(ans)}" if ans.media_path else None}
+                    for ans in a.interview.answers
+                ],
+            }
+            for a in user.applications if a.interview is not None
+        ],
         "notifications": [
             {"created_at": iso(n.created_at), "title": n.title, "body": n.body, "read_at": iso(n.read_at)}
             for n in user.notifications
@@ -99,7 +113,18 @@ def export_user_data(user):
                 zf.writestr(f"resumes/{a.id}-{resume_file_name(a)}", storage.read_resume(a.resume_path))
             except storage.StorageError as e:
                 current_app.logger.warning("Export: resume for application %s unavailable: %s", a.id, e)
+            for ans in (a.interview.answers if a.interview else []):
+                if ans.media_path:
+                    try:
+                        zf.writestr(f"recordings/{a.interview.id}-q{ans.position + 1}.{_ext(ans)}",
+                                    storage.read_resume(ans.media_path))
+                    except storage.StorageError as e:
+                        current_app.logger.warning("Export: recording %s unavailable: %s", ans.id, e)
     return path
+
+
+def _ext(answer):
+    return "mp4" if answer.media_type == "video/mp4" else "webm"
 
 
 def delete_user_account(user, actor=None, reason="self-service"):
@@ -107,6 +132,7 @@ def delete_user_account(user, actor=None, reason="self-service"):
     from . import storage
 
     files = [a.resume_path for a in user.applications]
+    files += [ans.media_path for a in user.applications if a.interview for ans in a.interview.answers if ans.media_path]
     audit("account.deleted", target=user, actor=actor, reason=reason, applications=len(files))
     # Keep audit entries (they store the email) but drop the link to the deleted row
     AuditLog.query.filter(AuditLog.actor_id == user.id).update({"actor_id": None}, synchronize_session=False)

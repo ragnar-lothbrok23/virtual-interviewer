@@ -7,10 +7,10 @@ from flask_login import current_user
 from sqlalchemy import case
 
 from .extensions import db, limiter
-from .forms import BulkSlotForm, CancelForm, JobForm, SlotForm
+from .forms import BulkSlotForm, CancelForm, JobForm, QuestionForm, SlotForm
 from .main import role_required
-from .models import Application, Interview, InterviewSlot, Job, User, utcnow
-from .services import scheduling, storage
+from .models import Application, Interview, InterviewAnswer, InterviewQuestion, InterviewSlot, Job, User, utcnow
+from .services import interview_room, scheduling, storage
 from .services.analysis import queue_analysis, resume_file_name
 from .services.notifications import notify_application_status
 from .services.resume import skill_summary
@@ -294,3 +294,108 @@ def interviews():
         query = query.order_by(Interview.starts_at.desc())
     page = query.paginate(per_page=50, error_out=False)
     return render_template("hr/interviews.html", page=page, view=view, labels=Interview.STATUS_LABELS)
+
+
+# ---------- interview questions ----------
+
+MAX_QUESTIONS = 15
+
+
+@bp.route("/jobs/<int:job_id>/questions", methods=["GET", "POST"])
+@hr_only
+def questions(job_id):
+    job = db.get_or_404(Job, job_id)
+    form = QuestionForm()
+    if form.validate_on_submit():
+        if len(job.questions) >= MAX_QUESTIONS:
+            flash(f"A job can have at most {MAX_QUESTIONS} questions.", "warning")
+        else:
+            db.session.add(InterviewQuestion(job_id=job.id, position=len(job.questions), text=form.text.data.strip(),
+                                             category=form.category.data, answer_seconds=form.answer_seconds.data))
+            audit("question.added", job=job.title)
+            db.session.commit()
+            flash("Question added.", "success")
+        return redirect(url_for("hr.questions", job_id=job.id))
+    edit_forms = {q.id: QuestionForm(prefix=f"q{q.id}", obj=q) for q in job.questions}
+    return render_template("hr/questions.html", job=job, form=form, edit_forms=edit_forms, max_questions=MAX_QUESTIONS)
+
+
+def _question(question_id):
+    return db.get_or_404(InterviewQuestion, question_id)
+
+
+@bp.post("/questions/<int:question_id>/edit")
+@hr_only
+def edit_question(question_id):
+    q = _question(question_id)
+    form = QuestionForm(prefix=f"q{q.id}")
+    if form.validate_on_submit():
+        q.text, q.category, q.answer_seconds = form.text.data.strip(), form.category.data, form.answer_seconds.data
+        audit("question.edited", job=q.job.title, question_id=q.id)
+        db.session.commit()
+        flash("Question saved. Interviews that already started keep their original questions.", "success")
+    else:
+        flash(" ".join(e for errors in form.errors.values() for e in errors), "danger")
+    return redirect(url_for("hr.questions", job_id=q.job_id))
+
+
+@bp.post("/questions/<int:question_id>/delete")
+@hr_only
+def delete_question(question_id):
+    q = _question(question_id)
+    job = q.job
+    db.session.delete(q)
+    db.session.flush()
+    for i, other in enumerate(InterviewQuestion.query.filter_by(job_id=job.id).order_by(InterviewQuestion.position)):
+        other.position = i
+    audit("question.deleted", job=job.title)
+    db.session.commit()
+    flash("Question deleted.", "info")
+    return redirect(url_for("hr.questions", job_id=job.id))
+
+
+@bp.post("/questions/<int:question_id>/move")
+@hr_only
+def move_question(question_id):
+    q = _question(question_id)
+    ordered = InterviewQuestion.query.filter_by(job_id=q.job_id).order_by(InterviewQuestion.position).all()
+    i = ordered.index(q)
+    j = i - 1 if request.form.get("direction") == "up" else i + 1
+    if 0 <= j < len(ordered):
+        ordered[i], ordered[j] = ordered[j], ordered[i]
+        for pos, item in enumerate(ordered):
+            item.position = pos
+        db.session.commit()
+    return redirect(url_for("hr.questions", job_id=q.job_id))
+
+
+@bp.post("/jobs/<int:job_id>/questions/defaults")
+@hr_only
+def default_questions(job_id):
+    job = db.get_or_404(Job, job_id)
+    if job.questions:
+        flash("This job already has questions.", "info")
+    else:
+        interview_room.ensure_questions(job)
+        audit("question.defaults_created", job=job.title)
+        db.session.commit()
+        flash("Default questions created from the job's required skills. Review and edit them.", "success")
+    return redirect(url_for("hr.questions", job_id=job.id))
+
+
+# ---------- interview recordings ----------
+
+@bp.route("/answers/<int:answer_id>/media")
+@hr_only
+def answer_media(answer_id):
+    answer = db.get_or_404(InterviewAnswer, answer_id)
+    if not answer.media_path:
+        abort(404)
+    try:
+        data = storage.read_resume(answer.media_path)
+    except storage.StorageError as e:
+        current_app.logger.error("Could not read recording %s: %s", answer.id, e)
+        abort(404)
+    # conditional=True answers Range requests, so the video player can seek
+    return send_file(io.BytesIO(data), mimetype=answer.media_type or "video/webm", conditional=True,
+                     download_name=f"answer-{answer.position + 1}.{'mp4' if answer.media_type == 'video/mp4' else 'webm'}")

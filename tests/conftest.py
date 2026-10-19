@@ -22,6 +22,16 @@ from app.services import gemini
 
 def pytest_addoption(parser):
     parser.addoption("--postgres", action="store_true", help="Run the suite against an embedded PostgreSQL server")
+    parser.addoption("--e2e", action="store_true", help="Also run the slow real-browser end-to-end tests")
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--e2e"):
+        return
+    skip = pytest.mark.skip(reason="real-browser test; run with --e2e")
+    for item in items:
+        if "e2e" in item.keywords:
+            item.add_marker(skip)
 
 
 @pytest.fixture(scope="session")

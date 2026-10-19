@@ -1,13 +1,13 @@
 import io
 
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user
 
 from .extensions import db, limiter
 from .forms import ApplyForm, CancelForm, WithdrawForm
 from .main import role_required
 from .models import Application, Interview, InterviewSlot, Job, User, utcnow
-from .services import scheduling, storage
+from .services import interview_room, scheduling, storage
 from .services.analysis import UploadError, attach_resume, prepare_upload, queue_analysis
 from .services.ics import interview_ics
 from .services.mail import external_url
@@ -209,7 +209,7 @@ def interview(interview_id):
     interview = _own_interview(interview_id)
     opens, closes = scheduling.join_window(interview)
     return render_template("candidate/interview.html", i=interview, a=interview.application,
-                           can_join=scheduling.can_join(interview), join_opens=opens, join_closes=closes,
+                           can_join=interview_room.can_enter(interview), join_opens=opens, join_closes=closes,
                            can_change=scheduling.can_change(interview),
                            can_reschedule=scheduling.can_reschedule(interview),
                            change_deadline=scheduling.change_deadline(interview),
@@ -265,10 +265,71 @@ def interview_calendar(interview_id):
 @candidate_only
 def join_interview(interview_id):
     interview = _own_interview(interview_id)
-    if not scheduling.can_join(interview):
+    if not interview_room.can_enter(interview):
         opens, _ = scheduling.join_window(interview)
-        flash(f"You can join from {format_local(opens)}." if interview.is_active and utcnow() < opens
-              else "This interview isn't open for joining.", "warning")
+        flash(f"You can join from {format_local(opens)}." if interview.status == Interview.STATUS_SCHEDULED
+              and utcnow() < opens else "This interview isn't open for joining.", "warning")
         return redirect(url_for("candidate.interview", interview_id=interview.id))
-    # Phase 6 replaces this with the live interview room
-    return render_template("candidate/interview_room_placeholder.html", i=interview)
+    return render_template("candidate/interview_room.html", i=interview, job=interview.application.job,
+                           state=interview_room.state(interview))
+
+
+# ---------- interview room API (JSON, called by static/js/interview_room.js) ----------
+
+def _room_call(fn):
+    try:
+        return jsonify(fn())
+    except interview_room.RoomError as e:
+        return jsonify(error=str(e)), e.status
+
+
+@bp.post("/interviews/<int:interview_id>/room/start")
+@candidate_only
+@limiter.limit("30 per hour")
+def room_start(interview_id):
+    interview = _own_interview(interview_id)
+    payload = request.get_json(silent=True) or {}
+    return _room_call(lambda: interview_room.start(interview, payload.get("consent") is True))
+
+
+@bp.get("/interviews/<int:interview_id>/room/state")
+@candidate_only
+@limiter.exempt
+def room_state(interview_id):
+    return jsonify(interview_room.state(_own_interview(interview_id)))
+
+
+@bp.post("/interviews/<int:interview_id>/room/ask")
+@candidate_only
+@limiter.limit("120 per hour")
+def room_ask(interview_id):
+    interview = _own_interview(interview_id)
+    payload = request.get_json(silent=True) or {}
+    position = payload.get("position")
+    if not isinstance(position, int):
+        return jsonify(error="Missing question position."), 400
+    return _room_call(lambda: interview_room.ask(interview, position))
+
+
+@bp.post("/interviews/<int:interview_id>/room/answer")
+@candidate_only
+@limiter.limit("120 per hour")
+def room_answer(interview_id):
+    interview = _own_interview(interview_id)
+    request.max_content_length = current_app.config["MAX_ANSWER_UPLOAD"] + 1024 * 1024  # allow video uploads here
+    position = request.form.get("position", type=int)
+    media = request.files.get("media")
+    if position is None or media is None:
+        return jsonify(error="Missing recording."), 400
+    data = media.read()
+    return _room_call(lambda: interview_room.submit(interview, position, data, request.form.get("duration")))
+
+
+@bp.post("/interviews/<int:interview_id>/room/event")
+@candidate_only
+@limiter.limit("600 per hour")
+def room_event(interview_id):
+    interview = _own_interview(interview_id)
+    payload = request.get_json(silent=True) or {}
+    return _room_call(lambda: {"recorded": interview_room.record_client_event(
+        interview, str(payload.get("kind", "")), payload.get("position"), payload.get("details"))})

@@ -11,6 +11,7 @@
     {% if job.closes_at %}<div class="small text-muted mt-1"><i class="bi bi-clock me-1"></i>Deadline {{ job.closes_at|localtime }}</div>{% endif %}
   </div>
   <div class="text-end">
+    <a href="{{ url_for('hr.questions', job_id=job.id) }}" class="btn btn-sm btn-outline-primary mb-1"><i class="bi bi-chat-square-text me-1"></i>Questions</a>
     <a href="{{ url_for('hr.slots', job_id=job.id) }}" class="btn btn-sm btn-outline-primary mb-1"><i class="bi bi-calendar3 me-1"></i>Interview slots</a>
     <a href="{{ url_for('hr.edit_job', job_id=job.id) }}" class="btn btn-sm btn-outline-primary mb-1"><i class="bi bi-pencil me-1"></i>Edit job</a>
     <div class="small text-muted">Auto-shortlist at match score ≥ {{ threshold|int }}</div>

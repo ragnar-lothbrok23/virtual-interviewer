@@ -17,7 +17,7 @@
 
       {% if i.status in ('scheduled', 'in_progress') %}
         {% if can_join %}
-          <a href="{{ url_for('candidate.join_interview', interview_id=i.id) }}" class="btn btn-success btn-lg"><i class="bi bi-camera-video me-2"></i>Join interview</a>
+          <a href="{{ url_for('candidate.join_interview', interview_id=i.id) }}" class="btn btn-success btn-lg"><i class="bi bi-camera-video me-2"></i>{{ 'Continue interview' if i.status == 'in_progress' else 'Join interview' }}</a>
         {% else %}
           <button class="btn btn-success btn-lg" disabled><i class="bi bi-camera-video me-2"></i>Join interview</button>
           <div class="small text-muted mt-2">The Join button opens at {{ join_opens|localtime('%I:%M %p, %d %b') }}.</div>
@@ -29,7 +29,9 @@
       {% elif i.status == 'no_show' %}
         <div class="alert alert-danger small">You didn't join this interview. Please contact the recruiter if something went wrong.</div>
       {% elif i.status == 'completed' %}
-        <div class="alert alert-success small">Interview completed. The recruiter will review your results.</div>
+        <div class="alert alert-success small">Interview completed{% if i.end_reason == 'timed_out' %} (time ran out after
+          {{ i.answers|selectattr('is_submitted')|list|length }} of {{ i.question_count }} answers){% endif %}.
+          The recruiter will review your results.</div>
       {% endif %}
     </div></div>
   </div>

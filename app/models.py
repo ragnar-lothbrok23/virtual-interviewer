@@ -365,9 +365,31 @@ class Interview(db.Model):
     completed_at = db.Column(db.DateTime(timezone=True))
     updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
+    # Interview room (Phase 6)
+    recording_consent_at = db.Column(db.DateTime(timezone=True))
+    question_plan = db.Column(db.JSON)  # questions frozen at start: [{text, category, answer_seconds}]
+    current_position = db.Column(db.Integer, nullable=False, default=0)  # index of the next unanswered question
+    hard_deadline = db.Column(db.DateTime(timezone=True))  # once started, the latest moment answers are accepted
+    end_reason = db.Column(db.String(16))  # completed / timed_out
+
+    END_COMPLETED = "completed"
+    END_TIMED_OUT = "timed_out"
+
     application = db.relationship("Application", backref=db.backref("interview", uselist=False,
                                                                     cascade="all, delete-orphan"))
     slot = db.relationship("InterviewSlot", back_populates="interviews")
+    answers = db.relationship("InterviewAnswer", back_populates="interview", cascade="all, delete-orphan",
+                              order_by="InterviewAnswer.position")
+    events = db.relationship("InterviewEvent", back_populates="interview", cascade="all, delete-orphan",
+                             order_by="InterviewEvent.id", lazy="dynamic")
+
+    @property
+    def question_count(self):
+        return len(self.question_plan or [])
+
+    @property
+    def is_finished(self):
+        return self.status in (self.STATUS_COMPLETED, self.STATUS_NO_SHOW, self.STATUS_CANCELLED)
 
     @property
     def ends_at(self):
@@ -384,6 +406,92 @@ class Interview(db.Model):
     @property
     def status_color(self):
         return self.STATUS_COLORS.get(self.status, "light")
+
+
+class InterviewQuestion(db.Model):
+    """The job's question bank (fixed order). Phase 7 makes follow-ups adaptive."""
+
+    CATEGORIES = {"technical": "Technical", "behavioral": "Behavioural", "situational": "Situational"}
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey("job.id", ondelete="CASCADE"), nullable=False, index=True)
+    position = db.Column(db.Integer, nullable=False)
+    text = db.Column(db.Text, nullable=False)
+    category = db.Column(db.String(16), nullable=False, default="technical")
+    answer_seconds = db.Column(db.Integer, nullable=False, default=120)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+    job = db.relationship("Job", backref=db.backref("questions", cascade="all, delete-orphan",
+                                                    order_by="InterviewQuestion.position"))
+
+    __table_args__ = (db.CheckConstraint("answer_seconds BETWEEN 30 AND 600", name="answer_seconds_range"),)
+
+    @property
+    def category_label(self):
+        return self.CATEGORIES.get(self.category, self.category)
+
+
+class InterviewAnswer(db.Model):
+    """One recorded answer. Created when the question is shown, completed when the recording is uploaded."""
+
+    TRANSCRIPT_PENDING = "pending"
+    TRANSCRIPT_DONE = "done"
+    TRANSCRIPT_FAILED = "failed"
+
+    id = db.Column(db.Integer, primary_key=True)
+    interview_id = db.Column(db.Integer, db.ForeignKey("interview.id", ondelete="CASCADE"), nullable=False, index=True)
+    position = db.Column(db.Integer, nullable=False)
+    question_text = db.Column(db.Text, nullable=False)
+    category = db.Column(db.String(16), nullable=False)
+    answer_seconds = db.Column(db.Integer, nullable=False)
+    asked_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    attempts = db.Column(db.Integer, nullable=False, default=1)  # >1 = the question was shown again after a reconnect
+    submitted_at = db.Column(db.DateTime(timezone=True))
+    duration_seconds = db.Column(db.Float)  # recording length reported by the browser (clamped)
+    late = db.Column(db.Boolean, nullable=False, default=False)
+    media_path = db.Column(db.String(255))  # encrypted recording in UPLOAD_FOLDER
+    media_type = db.Column(db.String(40))  # video/webm, video/mp4
+    media_size = db.Column(db.Integer)
+    transcript = db.Column(db.Text)
+    transcript_status = db.Column(db.String(10))
+    transcript_error = db.Column(db.Text)
+    speech_detected = db.Column(db.Boolean)
+
+    interview = db.relationship("Interview", back_populates="answers")
+
+    __table_args__ = (db.UniqueConstraint("interview_id", "position", name="uq_interview_answer_position"),)
+
+    @property
+    def is_submitted(self):
+        return self.submitted_at is not None
+
+
+class InterviewEvent(db.Model):
+    """Integrity and lifecycle signals during an interview (tab switches, reconnects, ...)."""
+
+    LABELS = {"tab_hidden": "Left the interview tab", "tab_visible": "Returned to the interview tab",
+              "window_blur": "Interview window lost focus", "reconnect": "Rejoined after a disconnect",
+              "question_restarted": "Question shown again after reconnecting", "started": "Interview started",
+              "finished": "Interview finished", "timed_out": "Interview timed out", "device_error": "Camera/mic problem",
+              "late_answer": "Answer submitted after the time limit"}
+    FLAGGED = {"tab_hidden", "window_blur", "question_restarted", "late_answer", "device_error"}
+
+    id = db.Column(db.Integer, primary_key=True)
+    interview_id = db.Column(db.Integer, db.ForeignKey("interview.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    kind = db.Column(db.String(32), nullable=False)
+    position = db.Column(db.Integer)  # question index, if relevant
+    details = db.Column(db.JSON, nullable=False, default=dict)
+
+    interview = db.relationship("Interview", back_populates="events")
+
+    @property
+    def label(self):
+        return self.LABELS.get(self.kind, self.kind)
+
+    @property
+    def flagged(self):
+        return self.kind in self.FLAGGED
 
 
 class EmailLog(db.Model):

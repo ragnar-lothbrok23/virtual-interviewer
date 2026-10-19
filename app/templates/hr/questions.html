@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "_form_field.html" import field %}
+{% block title %}Interview questions · {{ job.title }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('hr.job_detail', job_id=job.id) }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> {{ job.title }}</a>
+<h3 class="mt-2 mb-1">Interview questions</h3>
+<p class="text-muted small">Candidates answer these in order, on camera. Each interview keeps the questions it started with,
+  so edits only affect interviews that haven't started yet. {% if not job.questions %}If you leave this empty, a default set is
+  created from the job's required skills when the first interview starts.{% endif %}</p>
+
+<div class="row g-4">
+  <div class="col-lg-8">
+    {% for q in job.questions %}
+    {% set f = edit_forms[q.id] %}
+    <div class="card shadow-sm mb-3"><div class="card-body">
+      <div class="d-flex justify-content-between align-items-start mb-2">
+        <span class="fw-semibold">Question {{ loop.index }} <span class="badge text-bg-light border ms-1">{{ q.category_label }}</span>
+          <span class="text-muted small ms-1">{{ q.answer_seconds }} s</span></span>
+        <div class="d-flex gap-1">
+          {% for direction, icon, disabled in [('up', 'arrow-up', loop.first), ('down', 'arrow-down', loop.last)] %}
+          <form method="post" action="{{ url_for('hr.move_question', question_id=q.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="direction" value="{{ direction }}">
+            <button class="btn btn-sm btn-outline-secondary" {{ 'disabled' if disabled }} title="Move {{ direction }}"><i class="bi bi-{{ icon }}"></i></button>
+          </form>
+          {% endfor %}
+          <form method="post" action="{{ url_for('hr.delete_question', question_id=q.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-danger" title="Delete"><i class="bi bi-trash"></i></button>
+          </form>
+        </div>
+      </div>
+      <form method="post" action="{{ url_for('hr.edit_question', question_id=q.id) }}" novalidate>
+        {{ f.hidden_tag() }}
+        {{ f.text(class="form-control mb-2") }}
+        <div class="d-flex gap-2">
+          {{ f.category(class="form-select form-select-sm w-auto") }}
+          <div class="input-group input-group-sm w-auto">{{ f.answer_seconds(class="form-control", style="width: 6rem") }}<span class="input-group-text">seconds</span></div>
+          {{ f.submit_question(class="btn btn-sm btn-primary") }}
+        </div>
+      </form>
+    </div></div>
+    {% else %}
+    <div class="card card-body text-muted">
+      No questions yet.
+      <form method="post" action="{{ url_for('hr.default_questions', job_id=job.id) }}" class="mt-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-primary btn-sm"><i class="bi bi-magic me-1"></i>Create default questions from the job's skills</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm"><div class="card-body">
+      <h5 class="mb-3">Add a question</h5>
+      {% if job.questions|length < max_questions %}
+      <form method="post" novalidate>
+        {{ form.hidden_tag() }}
+        {{ field(form.text) }}
+        <div class="mb-3"><label class="form-label">{{ form.category.label.text }}</label>{{ form.category(class="form-select") }}</div>
+        {{ field(form.answer_seconds, help="30 to 600 seconds. Candidates also get " ~ config.PREP_SECONDS ~ " seconds to read each question.") }}
+        {{ form.submit_question(class="btn btn-primary w-100", value="Add question") }}
+      </form>
+      {% else %}
+      <p class="small text-muted mb-0">Maximum of {{ max_questions }} questions reached.</p>
+      {% endif %}
+    </div></div>
+  </div>
+</div>
+{% endblock %}

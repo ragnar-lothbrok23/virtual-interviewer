@@ -209,6 +209,27 @@ def register_cli(app):
             done += 1
         click.echo(f"Encrypted {done} file(s); {skipped} already encrypted; {missing} missing.")
 
+    @app.cli.command("dev-interview-soon")
+    @click.argument("interview_id", type=int)
+    @click.option("--minutes", default=5, show_default=True, help="Start this many minutes from now.")
+    def dev_interview_soon(interview_id, minutes):
+        """DEVELOPMENT ONLY: move a scheduled interview to start soon, so the interview room can be tried now."""
+        from datetime import timedelta
+
+        from .models import Interview, utcnow
+        from .services.timeutil import format_local
+
+        if app.config.get("ENV_NAME") == "production":
+            raise click.ClickException("This command is disabled in production.")
+        interview = db.session.get(Interview, interview_id)
+        if interview is None or interview.status != Interview.STATUS_SCHEDULED:
+            raise click.ClickException("No scheduled interview with that id.")
+        interview.starts_at = (utcnow() + timedelta(minutes=minutes)).replace(second=0, microsecond=0)
+        interview.reminder_24h_sent_at = interview.reminder_1h_sent_at = utcnow()  # don't fire reminders for it
+        db.session.commit()
+        click.echo(f"Interview {interview_id} now starts {format_local(interview.starts_at)}; the room opens "
+                   f"{app.config['JOIN_EARLY_MINUTES']} minutes before that.")
+
     @app.cli.command("queue-check")
     @click.option("--timeout", default=15, help="Seconds to wait for the worker.")
     def queue_check(timeout):
