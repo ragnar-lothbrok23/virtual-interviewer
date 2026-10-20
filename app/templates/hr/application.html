@@ -261,7 +261,7 @@
       <ul class="list-unstyled small mb-0">
         {% for e in evs %}
         <li class="mb-1 {{ 'text-warning-emphasis fw-semibold' if e.flagged }}">
-          <span class="text-muted">{{ e.created_at|localtime('%I:%M:%S %p') }}</span> · {{ e.label }}{% if e.position is not none %} (Q{{ e.position + 1 }}){% endif %}{% if e.details and e.details.reason %}: {{ e.details.reason }}{% endif %}
+          <span class="text-muted">{{ e.created_at|localtime('%I:%M:%S %p') }}</span> · {{ e.label }}{% if e.position is not none %} (Q{{ e.position + 1 }}){% endif %}{% if e.details and e.details.reason %}: {{ e.details.reason }}{% endif %}{% if e.details and e.details.seconds %} (about {{ e.details.seconds|round|int }} s){% endif %}
         </li>
         {% endfor %}
       </ul>

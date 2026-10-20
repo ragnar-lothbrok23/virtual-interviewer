@@ -269,7 +269,8 @@ def run_emotion(answer_id):
     cfg = current_app.config
     interview = answer.interview
     if summary["multi_face_frames"] >= cfg["EMOTION_MULTI_FACE_MIN_FRAMES"]:
-        log_event(interview, "multiple_faces", answer.position, frames=summary["multi_face_frames"])
+        log_event(interview, "multiple_faces", answer.position,
+                  seconds=round(summary["multi_face_frames"] / cfg["EMOTION_SAMPLE_FPS"], 1))
     if summary["longest_absence_seconds"] >= cfg["EMOTION_ABSENCE_FLAG_SECONDS"]:
         log_event(interview, "face_not_visible", answer.position, seconds=summary["longest_absence_seconds"])
     db.session.commit()

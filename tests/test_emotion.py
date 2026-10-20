@@ -175,7 +175,7 @@ def test_second_face_counts_only_when_clear_and_comparable(app):
     image = np.zeros((300, 600, 3), np.uint8)
     cases = [([face_row(100, 120), face_row(350, 110, 0.95)], 2),  # another person
              ([face_row(100, 120), face_row(350, 30, 0.95)], 1),  # tiny face (e.g. a photo on the wall)
-             ([face_row(100, 120), face_row(350, 110, 0.75)], 1)]  # weak detection
+             ([face_row(100, 120), face_row(350, 110, 0.6)], 1)]  # weak detection
     with app.app_context():
         for rows, expected in cases:
             models = {"detector": StubDetector(rows), "deepface": StubDeepFace([df_face(100, 120)])}
@@ -234,14 +234,19 @@ def test_insufficient_face_data_is_shown_as_not_assessed(app, room, ai, fake_emo
     assert "not assessed: face visible in only 10% of frames" in text and "couldn't be assessed reliably" in text
 
 
-def test_integrity_flags_from_the_video(app, room, ai, fake_emotion):
+def test_integrity_flags_from_the_video(app, room, ai, fake_emotion, login):
     fake_emotion.pattern = "nnnn" + "-" * 12 + "nnnnnnnnnnnnnnnnnnnnnnnnnnnnn222nnnnnnnn"
     started(room)
     answer_question(room, 0)
     with app.app_context():
         kinds = {e.kind: e for e in InterviewEvent.query.all()}
-        assert kinds["multiple_faces"].flagged and kinds["multiple_faces"].details == {"frames": 3}
+        assert kinds["multiple_faces"].flagged and kinds["multiple_faces"].details == {"seconds": 1.5}
         assert kinds["face_not_visible"].flagged and kinds["face_not_visible"].details == {"seconds": 6.0}
+    page = login("hr@test.com").get(f"/hr/applications/{get(app, Interview, room.id).application_id}")
+    text = " ".join(page.get_data(as_text=True).split())
+    assert "Another face was visible on camera (Q1) (about 2 s)" in text
+    assert "Face not visible on camera for a while (Q1) (about 6 s)" in text
+
 
 
 def test_analysis_failure_never_affects_the_interview(app, room, ai, fake_emotion):
