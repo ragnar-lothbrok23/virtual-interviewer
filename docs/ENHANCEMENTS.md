@@ -113,6 +113,30 @@ weak answers get the paper's similarity-based follow-up.
 Real Gemini check: 6/6 questions across two real resumes were specific (named the internship, project or skill)
 and passed validation.
 
+## Planned for Phase 9 (scorecard) — agreed 20 Oct 2026
+
+### A question and its follow-up count as one item
+
+**Problem.** `interview_nlp_summary` averages every scored answer, so a follow-up counts as an extra question:
+
+- Candidate A answers Q5 wrong and the follow-up wrong: Q5's topic is counted **twice** in their average.
+- Candidate B answers Q5 equally wrong after the interview's `MAX_FOLLOW_UPS` were used: counted **once**.
+- Interviews with follow-ups therefore have more items than those without, so candidates aren't scored on the same
+  number of questions.
+
+**Rule to implement.** Each planned question is one item. If it has a follow-up, the item's score combines both
+answers: a good follow-up answer recovers part of the original score (the gap was phrasing, not knowledge), a weak
+one confirms the low score **without adding a second penalty**. Exact combination to be fixed in Phase 9 (e.g.
+item = max(original, weighted mix of original and follow-up)), configurable and documented as an implementation
+decision; the per-answer scores stay visible to HR unchanged.
+
+**Tests.** Same item count with and without follow-ups; wrong + wrong = one low item; wrong + right raises the item;
+right answers unaffected; interviews without follow-ups score exactly as before.
+
+**Context (current behaviour, unchanged).** Follow-ups never chain: an answer to a follow-up is scored normally
+(verdict, accuracy, notes) and the interview moves straight to the next planned question; at most `MAX_FOLLOW_UPS`
+(3) per interview. HR sees the original and its follow-up together.
+
 ## Deliberately not planned (or moved to a later phase)
 
 | Idea | Decision | Reason |
