@@ -17,21 +17,24 @@ from app import create_app
 from app.config import TestingConfig
 from app.extensions import db, limiter
 from app.models import User
-from app.services import gemini
+from app.services import emotion, gemini
 
 
 def pytest_addoption(parser):
     parser.addoption("--postgres", action="store_true", help="Run the suite against an embedded PostgreSQL server")
     parser.addoption("--e2e", action="store_true", help="Also run the slow real-browser end-to-end tests")
+    parser.addoption("--deepface", action="store_true", help="Also run tests that load the real DeepFace models")
 
 
 def pytest_collection_modifyitems(config, items):
-    if config.getoption("--e2e"):
-        return
-    skip = pytest.mark.skip(reason="real-browser test; run with --e2e")
-    for item in items:
-        if "e2e" in item.keywords:
-            item.add_marker(skip)
+    for option, marker, reason in (("--e2e", "e2e", "real-browser test; run with --e2e"),
+                                   ("--deepface", "deepface", "loads TensorFlow/DeepFace; run with --deepface")):
+        if config.getoption(option):
+            continue
+        skip = pytest.mark.skip(reason=reason)
+        for item in items:
+            if marker in item.keywords:
+                item.add_marker(skip)
 
 
 @pytest.fixture(scope="session")
@@ -80,7 +83,7 @@ def _clean_state(app):
 
 
 @pytest.fixture(autouse=True)
-def _no_real_gemini(monkeypatch):
+def _no_real_gemini(monkeypatch, request):
     """Tests must never call the real Gemini API (it costs quota and is slow). Every helper is replaced, and the
     client itself refuses to be created unless a test installs a fake one in app.extensions["gemini_client"]."""
     def blocked(*args, **kwargs):
@@ -98,6 +101,12 @@ def _no_real_gemini(monkeypatch):
         return real_client()
 
     monkeypatch.setattr(gemini, "_client", guarded_client)
+
+    if "deepface" not in request.keywords:
+        def no_deepface():  # loading TensorFlow takes ~40 s; tests use the fake_emotion fixture instead
+            raise emotion.EmotionError("DeepFace is disabled in tests")
+
+        monkeypatch.setattr(emotion, "_load_models", no_deepface)
 
 
 class FakeInterviewAI:
@@ -208,6 +217,47 @@ class FakeInterviewAI:
                                  "layers are cached, avoid dev tools in the final image, use a dockerignore file and run "
                                  "as a non-root user, for example when containerising a Flask service."},
         ][:count]
+
+
+def emotion_frames(pattern="nnnhhnnnhn", faces=1, yaw=0.05, step=0.5):
+    """Synthetic per-frame results for emotion.aggregate: n = neutral, h = happy, f = fear, s = sad, a = angry,
+    - = no face, 2 = a second face (neutral)."""
+    probs = {"n": "neutral", "h": "happy", "f": "fear", "s": "sad", "a": "angry"}
+    frames = []
+    for i, c in enumerate(pattern):
+        t = round(i * step, 2)
+        if c == "-":
+            frames.append((t, {"faces": 0, "probs": None, "yaw": None}))
+            continue
+        p = {e: 0.02 for e in emotion.EMOTIONS}
+        p[probs.get(c, "neutral")] = 0.88
+        frames.append((t, {"faces": 2 if c == "2" else faces, "probs": p, "yaw": yaw}))
+    return frames
+
+
+class FakeEmotion:
+    """Replaces the DeepFace pipeline: per-frame results come from `pattern`, the real aggregation runs."""
+
+    def __init__(self):
+        self.pattern = "nnnhhnnnhn"
+        self.yaw = 0.05
+        self.error = None
+        self.calls = 0
+
+    def analyse_recording(self, media):
+        from flask import current_app
+
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return emotion.aggregate(emotion_frames(self.pattern, yaw=self.yaw), current_app.config)
+
+
+@pytest.fixture
+def fake_emotion(monkeypatch):
+    fake = FakeEmotion()
+    monkeypatch.setattr(emotion, "analyse_recording", fake.analyse_recording)
+    return fake
 
 
 @pytest.fixture

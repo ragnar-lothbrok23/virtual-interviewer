@@ -62,6 +62,10 @@ edits a reference answer, and the existing suites on SQLite, PostgreSQL and the 
 | Follow-up also when the rubric verdict is incorrect / partially correct / off topic / don't know, even with high similarity | **Not in the paper** (rule is similarity only) | **Deviation (Category C)**, chosen by the user on 20 Oct 2026 after a real interview: six wrong but on-topic answers scored similarity 68–93 (accuracy 10/100) and got no follow-up. `FOLLOW_UP_TRIGGER` (`similarity` = paper baseline). No extra AI calls (rubric reused for scoring); decision 9–12 s measured |
 | Transcribing the audio track only | Not specified | Implementation decision: 3–5× faster than video (57 s answer: 7–12 s vs 24–67 s) |
 | Follow-ups for resume-based answers | Not specified (rule is stated for technical answers) | Same similarity rule applied (`FOLLOW_UP_CATEGORIES`) |
+| DeepFace facial analysis of the video for confidence, nervousness and attentiveness | Specified (§3.2) | Implemented (Phase 8) per recorded answer, on a separate worker |
+| Face alignment, histogram normalisation, temporal smoothing | Specified (§3.2) | Implemented: CLAHE for face detection (it made emotion readings worse, so DeepFace reads the original frame), DeepFace alignment, exponential moving average |
+| Mapping of DeepFace's 7 emotions to confidence / nervousness; attentiveness from face presence and head turn; emotion score = 50% confidence + 50% attentiveness; 2 frames/s; YuNet threshold 0.7 | **Not specified** | Implementation decisions (`EMOTION_*` settings) |
+| "Insufficient" instead of a low score when the face is visible in < 50% of frames; reliability label | Not specified | Implementation decision (fairness: lighting and camera problems must not lower a score) |
 | Final score 0.75 NLP + 0.15 Emotion + 0.10 Context | Specified (§3.4, Eq. 1) | Phase 9 |
 | Turn latency 2.3 s per candidate turn | Reported result (§4.4, GPU server) | Measured in Phase 12; currently ~5–7 s after technical answers, ~1–2 s otherwise |
 

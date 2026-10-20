@@ -544,6 +544,24 @@ class InterviewAnswer(db.Model):
     confidence = db.Column(db.String(10))  # assessor confidence: high, medium, low
     needs_review = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
 
+    # Facial emotion analysis (Phase 8, DeepFace): see services/emotion.py
+    EMOTION_PENDING, EMOTION_DONE, EMOTION_FAILED, EMOTION_INSUFFICIENT = "pending", "done", "failed", "insufficient"
+    emotion_status = db.Column(db.String(12))
+    emotion_error = db.Column(db.Text)
+    emotion_requested_at = db.Column(db.DateTime(timezone=True))
+    emotion_at = db.Column(db.DateTime(timezone=True))
+    emotion = db.Column(db.JSON)  # summary: distribution, timeline, frames, reliability...
+    emotion_score = db.Column(db.Float)  # 0-100 (None when there wasn't enough face data)
+    emotion_confidence = db.Column(db.Float)
+    emotion_nervousness = db.Column(db.Float)
+    emotion_attentiveness = db.Column(db.Float)
+
+    @property
+    def is_emotion_running(self):
+        requested = self.emotion_requested_at
+        return (self.emotion_status == self.EMOTION_PENDING and requested is not None
+                and utcnow() - as_utc(requested) < timedelta(minutes=15))
+
     VERDICT_LABELS = {"correct": "Correct", "partially_correct": "Partially correct", "incorrect": "Incorrect",
                       "off_topic": "Off topic", "dont_know": "Said they don't know", "no_answer": "No answer",
                       "clarification_request": "Asked for clarification"}
@@ -587,8 +605,11 @@ class InterviewEvent(db.Model):
               "follow_up_skipped": "Follow-up not asked (failed checks or not enough time)",
               "resume_questions_added": "Resume-based questions added",
               "resume_questions_unavailable": "Resume-based questions not available; job questions only",
-              "jd_questions_unavailable": "JD-based technical questions not available; other job questions only"}
-    FLAGGED = {"tab_hidden", "window_blur", "question_restarted", "late_answer", "device_error"}
+              "jd_questions_unavailable": "JD-based technical questions not available; other job questions only",
+              "multiple_faces": "Another face was visible on camera",
+              "face_not_visible": "Face not visible on camera for a while"}
+    FLAGGED = {"tab_hidden", "window_blur", "question_restarted", "late_answer", "device_error", "multiple_faces",
+               "face_not_visible"}
 
     id = db.Column(db.Integer, primary_key=True)
     interview_id = db.Column(db.Integer, db.ForeignKey("interview.id", ondelete="CASCADE"), nullable=False, index=True)

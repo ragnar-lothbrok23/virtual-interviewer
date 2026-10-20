@@ -1,6 +1,8 @@
 """Background jobs (Huey).
 
-Run the worker with:   venv\\Scripts\\huey_consumer app.tasks.huey -k thread -w 2
+Run the workers with:  venv\\Scripts\\huey_consumer app.tasks.huey -k thread -w 2
+                       venv\\Scripts\\huey_consumer app.tasks.emotion_huey -k thread -w 1   (facial emotion analysis)
+The emotion queue is separate so CPU-heavy video analysis never delays transcription and follow-up decisions.
 Queue backend: Redis when REDIS_URL is set (production), otherwise a SQLite file (works natively on Windows).
 In testing (APP_ENV=testing) jobs run immediately in-process.
 """
@@ -14,17 +16,19 @@ from huey import MemoryHuey, RedisHuey, SqliteHuey, crontab
 from .config import get_config
 
 
-def _make_huey():
+def _make_huey(name="virtual-interviewer", sqlite_file=None):
     config = get_config()
     if config.ENV_NAME == "testing":
-        return MemoryHuey("virtual-interviewer", immediate=True)
+        return MemoryHuey(name, immediate=True)
     if config.REDIS_URL:
-        return RedisHuey("virtual-interviewer", url=config.REDIS_URL)
-    config.HUEY_SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return SqliteHuey("virtual-interviewer", filename=str(config.HUEY_SQLITE_PATH))
+        return RedisHuey(name, url=config.REDIS_URL)
+    path = sqlite_file or config.HUEY_SQLITE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return SqliteHuey(name, filename=str(path))
 
 
 huey = _make_huey()
+emotion_huey = _make_huey("virtual-interviewer-emotion", get_config().HUEY_SQLITE_PATH.with_name("huey-emotion.db"))
 _worker_app = None
 
 
@@ -155,6 +159,15 @@ def prepare_jd_questions(job_id, task=None):
 
     with app_context():
         return generate(job_id, retries_left=task.retries if task is not None else 0)
+
+
+@emotion_huey.task(context=True)
+def analyse_emotion(answer_id, task=None):
+    """Facial emotion analysis of one recorded answer (DeepFace). Runs on its own worker; best-effort."""
+    from .services.emotion import run_emotion
+
+    with app_context():
+        return run_emotion(answer_id)
 
 
 @huey.periodic_task(crontab(minute="*/5"))

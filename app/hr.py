@@ -10,7 +10,7 @@ from .extensions import db, limiter
 from .forms import BulkSlotForm, CancelForm, JobForm, QuestionForm, SlotForm
 from .main import role_required
 from .models import Application, Interview, InterviewAnswer, InterviewQuestion, InterviewSlot, Job, User, utcnow
-from .services import interview_room, jd_questions, resume_questions, scheduling, scoring, storage
+from .services import emotion, interview_room, jd_questions, resume_questions, scheduling, scoring, storage
 from .services.analysis import queue_analysis, resume_file_name
 from .services.notifications import notify_application_status
 from .services.resume import skill_summary
@@ -163,6 +163,7 @@ def application(app_id):
     app_row = db.get_or_404(Application, app_id)
     summary = skill_summary(app_row.parsed, app_row.job.skill_list) if app_row.parsed else None
     nlp = scoring.interview_nlp_summary(app_row.interview) if app_row.interview else None
+    emo = emotion.interview_emotion_summary(app_row.interview) if app_row.interview else None
     rq = None
     if resume_questions.count_for(app_row.job):
         _, reason = resume_questions.plan_entries(app_row)
@@ -170,7 +171,7 @@ def application(app_id):
               "reason": reason, "can_prepare": resume_questions.wanted(app_row),
               "labels": resume_questions.SOURCE_LABELS}
     return render_template("hr/application.html", a=app_row, labels=Application.STATUS_LABELS,
-                           hr_statuses=Application.HR_STATUSES, summary=summary, nlp=nlp, rq=rq)
+                           hr_statuses=Application.HR_STATUSES, summary=summary, nlp=nlp, rq=rq, emo=emo)
 
 
 @bp.post("/applications/<int:app_id>/resume-questions")
@@ -495,6 +496,22 @@ def answer_media(answer_id):
     # conditional=True answers Range requests, so the video player can seek
     return send_file(io.BytesIO(data), mimetype=answer.media_type or "video/webm", conditional=True,
                      download_name=f"answer-{answer.position + 1}.{'mp4' if answer.media_type == 'video/mp4' else 'webm'}")
+
+
+@bp.post("/answers/<int:answer_id>/emotion")
+@hr_only
+@limiter.limit("60 per hour")
+def reanalyse_emotion(answer_id):
+    answer = db.get_or_404(InterviewAnswer, answer_id)
+    if not answer.media_path:
+        flash("This answer has no recording.", "warning")
+    elif not current_app.config["EMOTION_ENABLED"]:
+        flash("Facial expression analysis is switched off on this server.", "warning")
+    else:
+        audit("answer.emotion_requested", target=answer.interview.application.candidate, answer_id=answer.id)
+        interview_room.queue_emotion(answer)
+        flash("The facial expressions are being analysed again.", "info")
+    return redirect(url_for("hr.application", app_id=answer.interview.application_id) + "#interview-results")
 
 
 @bp.post("/answers/<int:answer_id>/rescore")

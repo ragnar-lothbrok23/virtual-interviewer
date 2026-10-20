@@ -66,6 +66,23 @@ class BaseConfig:
     MAX_INTEGRITY_EVENTS = 500        # per interview, so a misbehaving client can't flood the table
     GEMINI_TRANSCRIBE_MODEL = os.getenv("GEMINI_TRANSCRIBE_MODEL", "").strip()  # empty = use GEMINI_MODEL
 
+    # Facial emotion analysis (paper 3.2: DeepFace; confidence, nervousness, attentiveness; alignment, histogram
+    # normalisation and temporal smoothing are [paper]; the numbers below are [impl]). Runs in its own worker:
+    #   venv\Scripts\huey_consumer app.tasks.emotion_huey -k thread -w 1
+    EMOTION_ENABLED = os.getenv("EMOTION_ENABLED", "1") == "1"
+    EMOTION_SAMPLE_FPS = 2            # [impl] frames analysed per second of recording (~27 ms each on CPU)
+    EMOTION_MAX_FRAMES = 1200         # [impl] safety cap per answer (10 minutes at 2 fps)
+    EMOTION_DETECTOR_THRESHOLD = 0.7  # [impl] YuNet; 0.9 (default) missed faces in a dim room, 0.7 had no false faces
+    EMOTION_SECOND_FACE_CONFIDENCE = 0.85  # [impl] a second face counts only if clearly detected
+    EMOTION_SMOOTHING = 0.3           # [impl] weight of the newest frame in the moving average
+    EMOTION_FACING_YAW = 0.35         # [impl] nose offset (eye distances) still counted as facing the camera
+    EMOTION_MIN_FRAMES = 4            # [impl] fewer sampled frames -> no emotion score
+    EMOTION_MIN_FACE_RATIO = 0.5      # [impl] face visible in fewer frames -> "insufficient", not a low score
+    EMOTION_WEIGHTS = {"confidence": 0.5, "attentiveness": 0.5}  # [impl] per-answer emotion score
+    EMOTION_UNSTABLE_FLIP_RATE = 0.5  # [impl] top emotion changing this often between frames -> "low reliability"
+    EMOTION_MULTI_FACE_MIN_FRAMES = 2  # [impl] integrity flag: another person in view
+    EMOTION_ABSENCE_FLAG_SECONDS = 5  # [impl] integrity flag: face out of view this long
+
     # JD-based technical questions: generated once per job from its description and required skills, so every
     # candidate for the job gets the same ones (HR can review and edit them). [impl] realises the paper's "dynamic and
     # domain specific question generation"; 0 per job = only HR-written / template questions.
@@ -191,6 +208,7 @@ class TestingConfig(BaseConfig):
     GEMINI_MODEL = "gemini-test-model"
     RESUME_QUESTIONS_DEFAULT = 0  # tests that cover resume-based questions switch them on per job
     JD_QUESTIONS_DEFAULT = 0      # likewise for JD-based questions
+    EMOTION_ENABLED = True        # the model itself is replaced by a fake in tests (see conftest)
     GEMINI_EMBED_MODEL = "gemini-test-embedding"
     FILE_ENCRYPTION_KEYS = "t1:dGVzdC1rZXktMzItYnl0ZXMtZm9yLWFlcy1nY20hISE="  # fixed 32-byte test key (b'test-key-32-bytes-for-aes-gcm!!!')
     APP_TIMEZONE = "Asia/Kolkata"

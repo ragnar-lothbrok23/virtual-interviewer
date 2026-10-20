@@ -35,19 +35,25 @@ Emails are sent by the background worker, so it must be running.
 Check delivery with `venv\Scripts\flask --app run mail-test --to you@example.com`. Admins can see every
 email's status (sent, retrying, deferred, failed) under **Admin → Emails**.
 
-Run the app and the background worker in two terminals:
+Run the app and the two background workers in three terminals:
 
 ```powershell
-venv\Scripts\python run.py                                   # http://127.0.0.1:5000
-venv\Scripts\huey_consumer app.tasks.huey -k thread -w 2     # background jobs
-venv\Scripts\flask --app run queue-check                     # verify the worker responds
+venv\Scripts\python run.py                                           # http://127.0.0.1:5000
+venv\Scripts\huey_consumer app.tasks.huey -k thread -w 2             # background jobs (AI, email, housekeeping)
+venv\Scripts\huey_consumer app.tasks.emotion_huey -k thread -w 1     # facial emotion analysis (DeepFace)
+venv\Scripts\flask --app run queue-check                             # verify the main worker responds
 ```
+
+The emotion worker is separate so CPU-heavy video analysis never delays transcription or follow-up decisions. It
+loads TensorFlow once at its first job (~10-40 s); after that each answer takes a few seconds. Set
+`EMOTION_ENABLED=0` to switch facial analysis off.
 
 ## Tests
 
 ```powershell
 venv\Scripts\pytest                     # SQLite
 venv\Scripts\pytest --postgres          # real PostgreSQL (embedded, no install needed)
+venv\Scripts\pytest --deepface          # also run the real DeepFace/TensorFlow models on a real face
 venv\Scripts\pytest --cov=app           # with coverage
 venv\Scripts\pytest --e2e               # also run real-browser tests (Chrome, simulated camera/mic)
 ```
@@ -151,6 +157,21 @@ enables secure cookies and HTTPS enforcement.
 - Calibration with real Gemini: strong / medium / weak spoken answers scored 87.5 / 53.5 / 30.9.
 
 Agreed improvements and their status are tracked in [docs/ENHANCEMENTS.md](docs/ENHANCEMENTS.md).
+
+## Facial emotion analysis (DeepFace)
+
+Each recorded answer is analysed on the emotion worker (paper §3.2): frames sampled at 2 per second, faces found
+with YuNet on a histogram-normalised frame, DeepFace's emotion model read through its own face crop and alignment,
+temporal smoothing across frames. Per answer HR sees **confidence** (composed expressions: neutral, happy),
+**nervousness** (fear, sadness), **attentiveness** (face visible and turned to the camera), the mix of expressions,
+an emotion score (50% confidence + 50% attentiveness) and a **reliability** label (how stable the readings were).
+Answers where the face was visible in too few frames get no emotion score ("not assessed"), never a low one.
+Another face on camera or the face out of view for 5 s are added to the integrity timeline.
+
+Measured on a real interview: YuNet's default threshold (0.9) missed the face in a dim room in 48 of 60 frames; at
+0.7 it found 60 of 60 with no false faces. DeepFace's emotion model is noisy on real webcams (near-identical neutral
+frames were labelled anything from angry to happy), which is why only smoothed whole-answer averages are used, HR
+sees the reliability and caveats, and emotion counts for 15% of the final score (paper Eq. 1, Phase 9).
 
 ## Roles and accounts
 

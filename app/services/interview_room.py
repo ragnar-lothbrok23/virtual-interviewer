@@ -204,6 +204,21 @@ def ask(interview, position):
     return state(interview)
 
 
+def queue_emotion(answer):
+    """Facial emotion analysis runs on its own worker; it must never affect the interview itself."""
+    if not current_app.config["EMOTION_ENABLED"]:
+        return
+    answer.emotion_status, answer.emotion_requested_at, answer.emotion_error = (
+        InterviewAnswer.EMOTION_PENDING, utcnow(), None)
+    db.session.commit()
+    try:
+        from ..tasks import analyse_emotion
+
+        analyse_emotion(answer.id)
+    except Exception as e:  # e.g. the emotion queue is unavailable
+        current_app.logger.warning("Couldn't queue emotion analysis for answer %s: %s", answer.id, e)
+
+
 MEDIA_SIGNATURES = {"video/webm": lambda b: b[:4] == b"\x1a\x45\xdf\xa3",  # EBML header (WebM/Matroska)
                     "video/mp4": lambda b: b[4:8] == b"ftyp"}
 
@@ -255,6 +270,7 @@ def submit(interview, position, data, duration_seconds):
     from ..tasks import transcribe_answer
 
     transcribe_answer(answer.id)  # transcribes, decides on a follow-up if needed, then queues scoring
+    queue_emotion(answer)
     db.session.refresh(interview)
     if (interview.awaiting_decision_since is None and interview.status == Interview.STATUS_IN_PROGRESS
             and interview.current_position >= interview.question_count):
