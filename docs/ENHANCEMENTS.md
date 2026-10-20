@@ -57,6 +57,7 @@ edits a reference answer, and the existing suites on SQLite, PostgreSQL and the 
 | Follow-up threshold (similarity score < 55) | **Not specified** ("low") | Implementation decision (`FOLLOW_UP_THRESHOLD`) |
 | Maximum follow-ups (3), no chaining | **Not specified** | Implementation decision (`MAX_FOLLOW_UPS`) |
 | Decision timeout (45 s) | **Not specified** | Implementation decision (`DECISION_TIMEOUT_SECONDS`) |
+| **Technical questions generated from the job description** | Specified in spirit ("dynamic and domain specific question generation", §1/§3.3); method not specified | Implemented with Gemini, once per job (`Job.jd_question_count`, 0 = HR/template questions only) |
 | Questions personalised from the candidate's **resume** | Motivated (§3.3 "Individualization", "personalized and role-conscious interviews"); tailoring to the candidate's background is named as **future work** | Implementation extension (Category B), `Job.resume_question_count` (0 = paper baseline) |
 | Follow-ups for resume-based answers | Not specified (rule is stated for technical answers) | Same similarity rule applied (`FOLLOW_UP_CATEGORIES`) |
 | Final score 0.75 NLP + 0.15 Emotion + 0.10 Context | Specified (§3.4, Eq. 1) | Phase 9 |
@@ -70,6 +71,25 @@ states the system is “not confined to a conversation flow”. It does not desc
 answering clarification questions. The implementation follows the same turn-based format.
 
 ---
+
+## JD-based technical questions (requested and implemented 20 Oct 2026) — Category B
+
+Up to `Job.jd_question_count` technical questions (default 4, max 8) written by Gemini from the job description and
+required skills, stored in the job's question bank (`InterviewQuestion.origin = "jd"`, with `skill` and `difficulty`).
+
+| Concern | Handling |
+|---|---|
+| Comparability | Generated per job, not per candidate: everyone applying for the job gets the same technical questions |
+| HR control | Shown in Job -> Questions marked "From JD"; editing one makes it HR's own (never replaced); count 0 removes the generated ones |
+| Correctness of scoring | Each comes with a reference answer (key points, valid alternatives), so similarity and the follow-up rule work as in the paper |
+| Staying current | Fingerprint of title, description, skills and count; editing the job regenerates untouched JD questions; upcoming interviews' resume questions are refreshed so they don't repeat them |
+| Overlap with resume questions | They replace the generic per-skill "describe a project" templates (unless HR edited them) |
+| Quality checks | Must test a required skill, be a real question of sensible length, have a substantial reference, not repeat other questions, no personal topics; partial sets reported |
+| Limits | Never exceeds the 15-question limit (HR is told how many were added) |
+| Failure | Worker retries, then hourly via housekeeping, HR "Write them now"; interviews fall back to the default set and log why |
+| Latency / quota | One Gemini call per job (~3–4 s), never during an interview |
+
+Real Gemini check on the three seeded jobs: 12/12 questions valid, one per required skill, mixed difficulty.
 
 ## Resume-based questions (requested and implemented 20 Oct 2026) — Category B
 

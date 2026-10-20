@@ -10,7 +10,7 @@ from .extensions import db, limiter
 from .forms import BulkSlotForm, CancelForm, JobForm, QuestionForm, SlotForm
 from .main import role_required
 from .models import Application, Interview, InterviewAnswer, InterviewQuestion, InterviewSlot, Job, User, utcnow
-from .services import interview_room, resume_questions, scheduling, scoring, storage
+from .services import interview_room, jd_questions, resume_questions, scheduling, scoring, storage
 from .services.analysis import queue_analysis, resume_file_name
 from .services.notifications import notify_application_status
 from .services.resume import skill_summary
@@ -79,7 +79,10 @@ def jobs():
             db.session.flush()
             audit("job.created", job_id=job.id, title=job.title)
             db.session.commit()
-            flash(f"Job “{job.title}” created.", "success")
+            queued = jd_questions.safe_queue(job)
+            flash(f"Job “{job.title}” created." + (" Technical questions are being written from the job "
+                                                   "description; review them under Questions." if queued else ""),
+                  "success")
             return redirect(url_for("hr.jobs"))
     jobs = Job.query.order_by(Job.created_at.desc()).all()
     return render_template("hr/jobs.html", form=form, jobs=jobs)
@@ -107,6 +110,8 @@ def edit_job(job_id):
             audit("job.updated", job_id=job.id, title=job.title, skills_changed=skills_changed,
                   content_changed=content_changed)
             db.session.commit()
+            if content_changed:
+                jd_questions.safe_queue(job)  # JD-based questions follow the description (HR-edited ones are kept)
             active = sum(not a.is_withdrawn for a in job.applications)
             if content_changed and active:
                 from .tasks import rescore_job_applications
@@ -359,6 +364,8 @@ def edit_question(question_id):
         new_reference = (form.reference_answer.data or "").strip() or None
         if new_text != q.text and new_reference == q.reference_answer:
             new_reference = None  # the question changed: its old reference answer no longer fits
+        if new_text != q.text or new_reference != q.reference_answer or form.category.data != q.category:
+            q.origin = None  # edited by HR: it's theirs now and is never replaced by regeneration
         q.text, q.category, q.answer_seconds = new_text, form.category.data, form.answer_seconds.data
         q.reference_answer = new_reference
         audit("question.edited", job=q.job.title, question_id=q.id)
@@ -417,6 +424,43 @@ def resume_question_count(job_id):
         db.session.commit()
         flash("Saved. Upcoming interviews get an updated set automatically; interviews that already started keep "
               "their questions." if count else "Saved. Candidates will get the job's questions only.", "success")
+    return redirect(url_for("hr.questions", job_id=job.id))
+
+
+@bp.post("/jobs/<int:job_id>/jd-question-count")
+@hr_only
+def jd_question_count(job_id):
+    job = db.get_or_404(Job, job_id)
+    try:
+        count = int(request.form.get("count", ""))
+    except ValueError:
+        count = -1
+    maximum = current_app.config["JD_QUESTIONS_MAX"]
+    if not 0 <= count <= maximum:
+        flash(f"Choose between 0 and {maximum} technical questions from the job description.", "warning")
+    elif count != job.jd_question_count:
+        old, job.jd_question_count = job.jd_question_count, count
+        audit("job.jd_questions_changed", job_id=job.id, old=old, new=count)
+        db.session.commit()
+        jd_questions.safe_queue(job)
+        flash("Saved. The technical questions are being updated from the job description (questions you edited "
+              "are kept)." if count else "Saved. Questions generated from the job description were removed "
+              "(questions you edited are kept).", "success")
+    return redirect(url_for("hr.questions", job_id=job.id))
+
+
+@bp.post("/jobs/<int:job_id>/jd-questions")
+@hr_only
+def regenerate_jd_questions(job_id):
+    job = db.get_or_404(Job, job_id)
+    if not jd_questions.count_for(job):
+        flash("Choose how many technical questions to generate first.", "warning")
+    else:
+        jd_questions.safe_queue(job, force=True)
+        audit("job.jd_questions_requested", job_id=job.id)
+        db.session.commit()
+        flash("Writing new technical questions from the job description (one AI request). Questions you edited are "
+              "kept; interviews that already started keep their questions.", "success")
     return redirect(url_for("hr.questions", job_id=job.id))
 
 

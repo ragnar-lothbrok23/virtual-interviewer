@@ -183,6 +183,20 @@ class Job(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     embedding = db.Column(db.LargeBinary)  # float32 bytes of the job's semantic embedding (cached)
+    # Technical questions generated from the job description (part of the job's question bank, same for everyone)
+    JD_PENDING, JD_DONE, JD_FAILED = "pending", "done", "failed"
+    jd_question_count = db.Column(db.Integer, nullable=False, server_default="4",
+                                  default=lambda: current_app.config["JD_QUESTIONS_DEFAULT"])
+    jd_questions_status = db.Column(db.String(10))  # None = never requested
+    jd_questions_error = db.Column(db.Text)
+    jd_questions_key = db.Column(db.String(64))  # fingerprint of what they were generated from
+    jd_questions_at = db.Column(db.DateTime(timezone=True))
+
+    @property
+    def jd_questions_preparing(self):
+        return (self.jd_questions_status == self.JD_PENDING and self.jd_questions_at is not None
+                and utcnow() - as_utc(self.jd_questions_at) < timedelta(minutes=10))
+
     # Questions generated from each candidate's resume, asked in addition to the job's questions (0 = none)
     resume_question_count = db.Column(db.Integer, nullable=False, server_default="3",
                                       default=lambda: current_app.config["RESUME_QUESTIONS_DEFAULT"])
@@ -442,6 +456,12 @@ class InterviewQuestion(db.Model):
     category = db.Column(db.String(16), nullable=False, default="technical")
     answer_seconds = db.Column(db.Integer, nullable=False, default=120)
     reference_answer = db.Column(db.Text)  # what a strong answer covers; answers are compared with it (paper 3.3)
+    # Where the question came from: None = written (or edited) by HR, "default" = template, "jd" = generated from
+    # the job description (regenerated when the description changes, unless HR edited it)
+    ORIGIN_DEFAULT, ORIGIN_JD = "default", "jd"
+    origin = db.Column(db.String(10))
+    skill = db.Column(db.String(80))  # JD questions: the required skill it tests
+    difficulty = db.Column(db.String(15))  # JD questions: basic / intermediate / advanced
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
 
     job = db.relationship("Job", backref=db.backref("questions", cascade="all, delete-orphan",
@@ -452,6 +472,14 @@ class InterviewQuestion(db.Model):
     @property
     def category_label(self):
         return self.CATEGORIES.get(self.category, self.category)
+
+    @property
+    def source_label(self):
+        """Shown to HR next to answers: what a generated question tests."""
+        if self.origin == self.ORIGIN_JD:
+            return "Job description" + (f": {self.skill}" if self.skill else "") + \
+                (f" ({self.difficulty})" if self.difficulty else "")
+        return None
 
 
 class InterviewAnswer(db.Model):
@@ -558,7 +586,8 @@ class InterviewEvent(db.Model):
               "decision_timeout": "Follow-up decision timed out; moved on",
               "follow_up_skipped": "Follow-up not asked (failed checks or not enough time)",
               "resume_questions_added": "Resume-based questions added",
-              "resume_questions_unavailable": "Resume-based questions not available; job questions only"}
+              "resume_questions_unavailable": "Resume-based questions not available; job questions only",
+              "jd_questions_unavailable": "JD-based technical questions not available; other job questions only"}
     FLAGGED = {"tab_hidden", "window_blur", "question_restarted", "late_answer", "device_error"}
 
     id = db.Column(db.Integer, primary_key=True)

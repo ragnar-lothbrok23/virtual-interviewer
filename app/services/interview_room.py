@@ -28,9 +28,10 @@ CLIENT_EVENTS = {"tab_hidden", "tab_visible", "window_blur", "device_error"}
 
 # ---------- questions ----------
 
-def default_questions(job):
-    """A sensible starting set built from the job's required skills (HR can edit it)."""
-    skills = job.skill_list
+def default_questions(job, skill_questions=True):
+    """A sensible starting set built from the job's required skills (HR can edit it). Without `skill_questions` only
+    the introductory, situational and behavioural ones (JD-based technical questions take the skills' place)."""
+    skills = job.skill_list if skill_questions else []
     secs = current_app.config["DEFAULT_ANSWER_SECONDS"]
     questions = [("behavioral", f"Tell us about yourself and why you're interested in the {job.title} role.")]
     for skill in skills[:3]:
@@ -43,7 +44,8 @@ def default_questions(job):
                                      "Walk us through exactly what you would do."))
     questions.append(("behavioral", "Tell us about a time you disagreed with a teammate. How did you handle it, "
                                     "and what was the outcome?"))
-    return [{"text": text, "category": cat, "answer_seconds": secs} for cat, text in questions]
+    return [{"text": text, "category": cat, "answer_seconds": secs, "origin": InterviewQuestion.ORIGIN_DEFAULT}
+            for cat, text in questions]
 
 
 def ensure_questions(job):
@@ -147,9 +149,12 @@ def start(interview, consented):
 
     job = interview.application.job
     plan = [{"text": q.text, "category": q.category, "answer_seconds": q.answer_seconds,
-             "reference": q.reference_answer, "follow_up": False}
+             "reference": q.reference_answer, "follow_up": False, "source": q.source_label}
             for q in ensure_questions(job)]
+    from .jd_questions import unavailable_reason
     from .resume_questions import plan_entries
+
+    jd_unavailable = unavailable_reason(job)
 
     personal, unavailable = plan_entries(interview.application)
     plan[1:1] = personal  # right after the first (introductory) job question
@@ -166,6 +171,8 @@ def start(interview, consented):
         log_event(interview, "resume_questions_added", count=len(personal))
     elif unavailable:
         log_event(interview, "resume_questions_unavailable", reason=unavailable)
+    if jd_unavailable:
+        log_event(interview, "jd_questions_unavailable", reason=jd_unavailable)
     audit("interview.started", target=interview.application.candidate, interview_id=interview.id)
     db.session.commit()
     queue_missing_references(job)  # answers without a reference get one generated when they're scored

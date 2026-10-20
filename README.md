@@ -125,6 +125,14 @@ enables secure cookies and HTTPS enforcement.
   gets one focused follow-up question (at most `MAX_FOLLOW_UPS` = 3 per interview). The room shows
   "Preparing your next question…" meanwhile; if the decision takes over 45 s the interview simply moves on.
 - HR sees every score, the quotes and strengths/gaps per answer, an interview NLP summary, and can re-score.
+- **JD-based technical questions** (per job, 0-8, default 4; Job -> Questions): Gemini writes technical questions
+  from the job description and required skills -- one skill each, mixed difficulty, conceptual/design/debugging
+  questions answerable aloud, each with a reference answer. They're generated once per job in the background (when
+  the job is created or its description changes, or before the first interview) and stored in the job's question
+  list marked "From JD", so every candidate for the job gets the same ones and HR can edit, reorder or delete them.
+  Edited questions become HR's own and are never replaced; the rest are regenerated when the description changes.
+  They replace the generic "Describe a project where you used <skill>" templates. Weak answers get the paper's
+  follow-up. If they can't be generated, interviews use the default questions and HR sees why.
 - **Resume-based questions** (per job, 0-5, default 3; Job -> Questions): each candidate also gets questions written
   from their own parsed resume -- a job/internship, a project and a required skill they only listed -- asking for
   first-hand detail. They're generated in the background when the interview is booked (one AI request per

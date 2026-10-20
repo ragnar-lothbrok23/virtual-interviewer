@@ -15,6 +15,7 @@
     <div class="card shadow-sm mb-3"><div class="card-body">
       <div class="d-flex justify-content-between align-items-start mb-2">
         <span class="fw-semibold">Question {{ loop.index }} <span class="badge text-bg-light border ms-1">{{ q.category_label }}</span>
+          {% if q.origin == 'jd' %}<span class="badge text-bg-primary-subtle text-primary-emphasis border ms-1" title="Generated from the job description; editing it makes it yours">From JD{% if q.skill %} · {{ q.skill }}{% endif %}{% if q.difficulty %} · {{ q.difficulty }}{% endif %}</span>{% endif %}
           <span class="text-muted small ms-1">{{ q.answer_seconds }} s</span></span>
         <div class="d-flex gap-1">
           {% for direction, icon, disabled in [('up', 'arrow-up', loop.first), ('down', 'arrow-down', loop.last)] %}
@@ -55,6 +56,37 @@
     {% endfor %}
   </div>
   <div class="col-lg-4">
+    <div class="card shadow-sm mb-3" id="jd-questions"><div class="card-body">
+      <h5 class="mb-1">Technical questions from the job description</h5>
+      <p class="small text-muted">Written by the AI from the description and required skills, with reference answers.
+        They're part of the list on the left (marked “From JD”), so every candidate gets the same ones. Edit any of
+        them to make it yours; the rest are rewritten when the description changes.</p>
+      <form method="post" action="{{ url_for('hr.jd_question_count', job_id=job.id) }}" class="d-flex gap-2 align-items-center">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <select name="count" class="form-select form-select-sm w-auto" aria-label="Technical questions from the job description">
+          {% for n in range(config.JD_QUESTIONS_MAX + 1) %}<option value="{{ n }}" {{ 'selected' if n == job.jd_question_count }}>{{ n if n else 'None' }}</option>{% endfor %}
+        </select>
+        <span class="small text-muted">questions</span>
+        <button class="btn btn-sm btn-outline-primary ms-auto">Save</button>
+      </form>
+      <div class="small mt-2">
+        {% if job.jd_questions_preparing %}
+          <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Writing questions from the job description…</span>
+        {% elif job.jd_questions_status == 'failed' %}
+          <span class="text-danger">Couldn't write them: {{ job.jd_questions_error }}</span>
+        {% elif job.jd_questions_status == 'done' and job.jd_questions_error %}
+          <span class="text-warning-emphasis">{{ job.jd_questions_error }}</span>
+        {% elif job.jd_questions_status == 'done' and job.jd_questions_at %}
+          <span class="text-muted">Written {{ job.jd_questions_at|localtime }}</span>
+        {% endif %}
+      </div>
+      {% if job.jd_question_count and not job.jd_questions_preparing %}
+      <form method="post" action="{{ url_for('hr.regenerate_jd_questions', job_id=job.id) }}" class="mt-1">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-link btn-sm p-0">{{ 'Regenerate' if job.jd_questions_status == 'done' else 'Write them now' }}</button>
+      </form>
+      {% endif %}
+    </div></div>
     <div class="card shadow-sm mb-3"><div class="card-body">
       <h5 class="mb-1">Resume-based questions</h5>
       <p class="small text-muted">Extra questions written for each candidate from their own resume (experience, projects,
@@ -86,4 +118,7 @@
     </div></div>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+{% if job.jd_questions_preparing %}<script nonce="{{ csp_nonce() }}">setTimeout(() => location.reload(), 6000);</script>{% endif %}
 {% endblock %}

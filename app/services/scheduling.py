@@ -166,9 +166,13 @@ def book(application, slot):
           job=application.job.title, starts_at=as_utc(slot.starts_at).isoformat())
     db.session.commit()
     _send(interview, "booked")
+    from .jd_questions import safe_queue
     from .resume_questions import queue_if_booked
 
-    queue_if_booked(application)  # personalised questions are prepared in the background, well before the start
+    # Questions are prepared in the background, well before the start. The job's JD questions come first: once
+    # they're ready they refresh the resume questions (which must not repeat them).
+    if not safe_queue(application.job):
+        queue_if_booked(application)
     return interview
 
 

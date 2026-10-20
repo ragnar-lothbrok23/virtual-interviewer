@@ -66,6 +66,12 @@ class BaseConfig:
     MAX_INTEGRITY_EVENTS = 500        # per interview, so a misbehaving client can't flood the table
     GEMINI_TRANSCRIBE_MODEL = os.getenv("GEMINI_TRANSCRIBE_MODEL", "").strip()  # empty = use GEMINI_MODEL
 
+    # JD-based technical questions: generated once per job from its description and required skills, so every
+    # candidate for the job gets the same ones (HR can review and edit them). [impl] realises the paper's "dynamic and
+    # domain specific question generation"; 0 per job = only HR-written / template questions.
+    JD_QUESTIONS_DEFAULT = 4          # [impl] per job, for new jobs
+    JD_QUESTIONS_MAX = 8              # [impl]
+
     # Resume-based questions: generated per candidate from their parsed resume (experience, projects, skills).
     # [impl] extension of the paper's "individualization" (3.3); 0 per job = paper-baseline interview.
     RESUME_QUESTIONS_DEFAULT = 3      # [impl] per candidate, for new jobs (HR can change it per job)
@@ -178,6 +184,7 @@ class TestingConfig(BaseConfig):
     SHORTLIST_THRESHOLD = 60.0
     GEMINI_MODEL = "gemini-test-model"
     RESUME_QUESTIONS_DEFAULT = 0  # tests that cover resume-based questions switch them on per job
+    JD_QUESTIONS_DEFAULT = 0      # likewise for JD-based questions
     GEMINI_EMBED_MODEL = "gemini-test-embedding"
     FILE_ENCRYPTION_KEYS = "t1:dGVzdC1rZXktMzItYnl0ZXMtZm9yLWFlcy1nY20hISE="  # fixed 32-byte test key (b'test-key-32-bytes-for-aes-gcm!!!')
     APP_TIMEZONE = "Asia/Kolkata"

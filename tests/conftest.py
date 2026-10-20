@@ -87,7 +87,7 @@ def _no_real_gemini(monkeypatch):
         raise AssertionError("A test tried to call the real Gemini API; use the fake_gemini fixture")
 
     for name in ("parse_resume", "embed", "transcribe", "generate_reference", "score_answer", "generate_follow_up",
-                 "generate_resume_questions"):
+                 "generate_resume_questions", "generate_jd_questions"):
         monkeypatch.setattr(gemini, name, blocked)
     real_client = gemini._client
 
@@ -104,7 +104,11 @@ class FakeInterviewAI:
     """Deterministic interview AI: answers mentioning 'flask' are strong, others weak."""
 
     def __init__(self):
-        self.calls = {"reference": 0, "score": 0, "follow_up": 0, "transcribe": 0, "embed": 0, "resume_questions": 0}
+        self.calls = {"reference": 0, "score": 0, "follow_up": 0, "transcribe": 0, "embed": 0, "resume_questions": 0,
+                      "jd_questions": 0}
+        self.jd_questions = None  # None = the default four; tests set a list (or an error) to vary it
+        self.jd_error = None
+        self.last_jd_request = None
         self.resume_questions = None  # None = the default three; tests set a list (or an error) to vary it
         self.resume_error = None
         self.last_resume_request = self.last_follow_up_category = None
@@ -170,12 +174,43 @@ class FakeInterviewAI:
              "reference_answer": "Application factory, blueprints, config per environment, extensions, tests."},
         ][:count]
 
+    def generate_jd_questions(self, job_title, description, skills, existing_questions, count):
+        self.calls["jd_questions"] += 1
+        self.last_jd_request = {"title": job_title, "description": description, "skills": list(skills),
+                                "existing": list(existing_questions), "count": count}
+        if self.jd_error:
+            raise self.jd_error
+        if self.jd_questions is not None:
+            return [dict(q) for q in self.jd_questions]
+        return [
+            {"skill": "Flask", "difficulty": "intermediate",
+             "question": "How does Flask's application context differ from the request context, and when is each active?",
+             "reference_answer": "Flask keeps an application context for app-level data such as current_app and g, and a "
+                                 "request context for request and session; both are pushed per request and the app "
+                                 "context can also be pushed manually for scripts and background jobs."},
+            {"skill": "SQL", "difficulty": "intermediate",
+             "question": "When would you add an index to a table, and what does it cost you on writes?",
+             "reference_answer": "Indexes speed up lookups, joins and ordering on selective columns used by frequent "
+                                 "queries, but every insert, update and delete must also update the index, so they cost "
+                                 "write time and storage; check query plans before adding them in Flask apps."},
+            {"skill": "REST APIs", "difficulty": "basic",
+             "question": "What makes an API RESTful, and how do you choose status codes for create and validation errors?",
+             "reference_answer": "Resources identified by URLs, standard HTTP methods, stateless requests and "
+                                 "representations such as JSON; a successful create returns 201 with the location, "
+                                 "invalid input returns 400 or 422 with a clear error body, as Flask views often do."},
+            {"skill": "Docker", "difficulty": "advanced",
+             "question": "How would you keep a Docker image for a Python service small and its builds fast?",
+             "reference_answer": "Use a slim base image, multi-stage builds, copy the requirements first so dependency "
+                                 "layers are cached, avoid dev tools in the final image, use a dockerignore file and run "
+                                 "as a non-root user, for example when containerising a Flask service."},
+        ][:count]
+
 
 @pytest.fixture
 def interview_ai(monkeypatch):
     fake = FakeInterviewAI()
     for name in ("transcribe", "generate_reference", "embed", "score_answer", "generate_follow_up",
-                 "generate_resume_questions"):
+                 "generate_resume_questions", "generate_jd_questions"):
         monkeypatch.setattr(gemini, name, getattr(fake, name))
     return fake
 
