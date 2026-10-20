@@ -110,7 +110,9 @@ def rescore_job_applications(job_id, skills_changed):
         return rescore_job(job_id, skills_changed)
 
 
-@huey.task(retries=_cfg.ANALYSIS_RETRIES, retry_delay=_cfg.ANALYSIS_RETRY_DELAY, context=True)
+# Highest priority: a candidate may be waiting for this before their next question (the follow-up decision runs
+# right after it), so it jumps ahead of scoring and question preparation when several interviews run at once.
+@huey.task(retries=_cfg.ANALYSIS_RETRIES, retry_delay=_cfg.ANALYSIS_RETRY_DELAY, context=True, priority=100)
 def transcribe_answer(answer_id, task=None):
     """Transcribe one recorded interview answer with Gemini. Temporary AI errors are retried."""
     from .services.transcription import run_transcription

@@ -3,7 +3,7 @@ from flask import current_app
 
 from ..extensions import db
 from ..models import InterviewAnswer
-from . import gemini, scoring, storage
+from . import gemini, media as media_service, scoring, storage
 from .gemini import GeminiError
 
 
@@ -21,8 +21,10 @@ def run_transcription(answer_id, retries_left=0):
         db.session.commit()
         scoring.decide_follow_up(answer)  # never leave the candidate waiting
         return answer.transcript_status
+    audio = media_service.extract_audio(media)  # the sound alone transcribes 3-5x faster than the video
+    content, mime_type = audio if audio else (media, answer.media_type or "video/webm")
     try:
-        result = gemini.transcribe(media, answer.media_type or "video/webm")
+        result = gemini.transcribe(content, mime_type)
     except GeminiError as e:
         if e.retryable and retries_left > 0:
             answer.transcript_error = f"{e} (retrying automatically)"

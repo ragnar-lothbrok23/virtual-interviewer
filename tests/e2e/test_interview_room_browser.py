@@ -59,7 +59,7 @@ def interview_now(app, make_user):
         return interview.id
 
 
-def test_full_interview_in_a_real_browser(app, live_server, interview_now):
+def test_full_interview_in_a_real_browser(app, live_server, interview_now, interview_ai):
     sync_api = pytest.importorskip("playwright.sync_api")
     with sync_api.sync_playwright() as p:
         try:
@@ -100,6 +100,7 @@ def test_full_interview_in_a_real_browser(app, live_server, interview_now):
     assert labels == ["Behavioural", "About your resume", "Follow-up question", "Technical", "Follow-up question"]
 
     assert not [e for e in errors if "favicon" not in e], errors
+    assert interview_ai.transcribed_types == ["audio/ogg"] * 5  # Chrome's real recordings: only the audio is sent
     with app.app_context():
         interview = db.session.get(Interview, interview_now)
         assert interview.status == "completed" and interview.end_reason == "completed"

@@ -113,12 +113,14 @@ class FakeInterviewAI:
         self.resume_error = None
         self.last_resume_request = self.last_follow_up_category = None
         self.transcript = "Um, I built REST APIs with Flask and PostgreSQL."
+        self.transcribed_types = []  # MIME type of every transcribed recording (audio track or full video)
         self.rubric_overrides = {}  # tests change single rubric fields (verdict, a malformed score, ...)
         self.follow_up_overrides = {}
         self.last_upcoming = None
 
     def transcribe(self, media, mime_type):
         self.calls["transcribe"] += 1
+        self.transcribed_types.append(mime_type)
         return {"speech_detected": bool(self.transcript), "language": "en", "transcript": self.transcript}
 
     def generate_reference(self, question, category, job_title, skills):
