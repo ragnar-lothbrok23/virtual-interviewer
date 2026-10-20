@@ -10,7 +10,7 @@ from werkzeug.serving import make_server
 
 from app.extensions import db
 from app.models import Application, Interview, InterviewAnswer, InterviewQuestion, Job, User, utcnow
-from app.services import storage
+from app.services import resume_questions, storage
 from tests.conftest import PASSWORD
 
 pytestmark = pytest.mark.e2e
@@ -31,10 +31,12 @@ def live_server(app, interview_ai):
 
 @pytest.fixture
 def interview_now(app, make_user):
-    """A shortlisted candidate whose interview starts in 5 minutes (join window open), with 2 short questions."""
+    """A shortlisted candidate whose interview starts in 5 minutes (join window open), with 2 short job questions and
+    1 resume-based question prepared from their resume."""
     uid = make_user("browser@test.com", name="Browser Candidate")
     with app.app_context():
-        job = Job(title="E2E Developer", skills="Python, Flask", description="End-to-end test job " * 5)
+        job = Job(title="E2E Developer", skills="Python, Flask", description="End-to-end test job " * 5,
+                  resume_question_count=1)
         db.session.add(job)
         db.session.flush()
         for i, (text, category) in enumerate([("Introduce yourself.", "behavioral"),
@@ -46,6 +48,11 @@ def interview_now(app, make_user):
                                   analysis_status="done")
         db.session.add(application)
         db.session.flush()
+        application.resume_questions = [{
+            "text": "In your Booking API project, how did you prevent double bookings?", "source": "project",
+            "subject": "Booking API", "reference": "Flask with transactions and row locks.", "answer_seconds": 30}]
+        application.resume_questions_status = Application.RQ_DONE
+        application.resume_questions_key = resume_questions.fingerprint(application)
         interview = Interview(application_id=application.id, starts_at=utcnow() + timedelta(minutes=5), duration_minutes=30)
         db.session.add(interview)
         db.session.commit()
@@ -79,7 +86,7 @@ def test_full_interview_in_a_real_browser(app, live_server, interview_now):
         page.click("#start-btn")
 
         labels = []
-        for position in range(3):  # 2 planned questions + 1 follow-up after the weak technical answer
+        for position in range(5):  # 2 job + 1 resume question, + a follow-up after each weak resume/technical answer
             page.wait_for_selector("#phase-prep:not(.d-none)", timeout=30000)
             labels.append(page.inner_text("#q-category"))
             page.click("#answer-now")
@@ -90,14 +97,17 @@ def test_full_interview_in_a_real_browser(app, live_server, interview_now):
         page.wait_for_selector("#step-done:not(.d-none)", timeout=30000)
         assert "Interview complete" in page.inner_text("#step-done")
         browser.close()
-    assert labels == ["Behavioural", "Technical", "Follow-up question"]
+    assert labels == ["Behavioural", "About your resume", "Follow-up question", "Technical", "Follow-up question"]
 
     assert not [e for e in errors if "favicon" not in e], errors
     with app.app_context():
         interview = db.session.get(Interview, interview_now)
         assert interview.status == "completed" and interview.end_reason == "completed"
         answers = InterviewAnswer.query.filter_by(interview_id=interview_now).order_by(InterviewAnswer.position).all()
-        assert len(answers) == 3 and answers[2].is_follow_up and interview.follow_up_count == 1
+        assert len(answers) == 5 and interview.follow_up_count == 2
+        assert [a.category for a in answers] == ["behavioral", "resume", "resume", "technical", "technical"]
+        assert answers[1].question_source == answers[2].question_source == "Project: Booking API"
+        assert answers[2].is_follow_up and answers[4].is_follow_up
         assert all(a.is_scored for a in answers)
         for answer in answers:
             media = storage.read_resume(answer.media_path)

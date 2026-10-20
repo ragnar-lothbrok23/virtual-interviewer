@@ -149,6 +149,10 @@ def start(interview, consented):
     plan = [{"text": q.text, "category": q.category, "answer_seconds": q.answer_seconds,
              "reference": q.reference_answer, "follow_up": False}
             for q in ensure_questions(job)]
+    from .resume_questions import plan_entries
+
+    personal, unavailable = plan_entries(interview.application)
+    plan[1:1] = personal  # right after the first (introductory) job question
     now = utcnow()
     planned = sum(current_app.config["PREP_SECONDS"] + q["answer_seconds"] for q in plan)
     interview.question_plan = plan
@@ -158,6 +162,10 @@ def start(interview, consented):
     interview.hard_deadline = max(interview.ends_at, now + timedelta(seconds=planned) +
                                   timedelta(minutes=current_app.config["FINISH_BUFFER_MINUTES"]))
     log_event(interview, "started", questions=len(plan))
+    if personal:
+        log_event(interview, "resume_questions_added", count=len(personal))
+    elif unavailable:
+        log_event(interview, "resume_questions_unavailable", reason=unavailable)
     audit("interview.started", target=interview.application.candidate, interview_id=interview.id)
     db.session.commit()
     queue_missing_references(job)  # answers without a reference get one generated when they're scored
@@ -179,7 +187,7 @@ def ask(interview, position):
         answer = InterviewAnswer(interview_id=interview.id, position=position, question_text=q["text"],
                                  category=q["category"], answer_seconds=q["answer_seconds"], asked_at=utcnow(),
                                  is_follow_up=bool(q.get("follow_up")), reference_answer=q.get("reference"),
-                                 follow_up_target=q.get("target"))
+                                 follow_up_target=q.get("target"), question_source=q.get("source"))
         db.session.add(answer)
     elif not answer.is_submitted:
         answer.attempts += 1

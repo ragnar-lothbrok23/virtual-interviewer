@@ -137,14 +137,26 @@ def prepare_reference_answers(job_id):
         return fill_missing_references(job_id)
 
 
+@huey.task(retries=_cfg.ANALYSIS_RETRIES, retry_delay=_cfg.ANALYSIS_RETRY_DELAY, context=True)
+def prepare_resume_questions(application_id, task=None):
+    """Generate the personalised resume-based questions for one candidate's interview."""
+    from .services.resume_questions import generate
+
+    with app_context():
+        return generate(application_id, retries_left=task.retries if task is not None else 0)
+
+
 @huey.periodic_task(crontab(minute="*/5"))
 def interview_housekeeping():
-    """Every 5 minutes: send due interview reminders, mark missed interviews, close abandoned ones."""
+    """Every 5 minutes: send due interview reminders, mark missed interviews, close abandoned ones, and prepare
+    resume-based questions for interviews coming up."""
     from .services.interview_room import expire_stale
+    from .services.resume_questions import refresh_upcoming
     from .services.scheduling import mark_no_shows, send_due_reminders
 
     with app_context():
-        return {"reminders": send_due_reminders(), "no_shows": mark_no_shows(), "timed_out": expire_stale()}
+        return {"reminders": send_due_reminders(), "no_shows": mark_no_shows(), "timed_out": expire_stale(),
+                "resume_questions": refresh_upcoming()}
 
 
 @huey.task()

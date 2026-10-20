@@ -10,7 +10,7 @@ from .extensions import db, limiter
 from .forms import BulkSlotForm, CancelForm, JobForm, QuestionForm, SlotForm
 from .main import role_required
 from .models import Application, Interview, InterviewAnswer, InterviewQuestion, InterviewSlot, Job, User, utcnow
-from .services import interview_room, scheduling, scoring, storage
+from .services import interview_room, resume_questions, scheduling, scoring, storage
 from .services.analysis import queue_analysis, resume_file_name
 from .services.notifications import notify_application_status
 from .services.resume import skill_summary
@@ -73,7 +73,8 @@ def jobs():
             form.closes_at.errors.append(error)
         else:
             job = Job(title=form.title.data.strip(), skills=_clean_skills(form.skills.data),
-                      description=form.description.data.strip(), closes_at=closes_at)
+                      description=form.description.data.strip(), closes_at=closes_at,
+                      resume_question_count=current_app.config["RESUME_QUESTIONS_DEFAULT"])
             db.session.add(job)
             db.session.flush()
             audit("job.created", job_id=job.id, title=job.title)
@@ -157,8 +158,29 @@ def application(app_id):
     app_row = db.get_or_404(Application, app_id)
     summary = skill_summary(app_row.parsed, app_row.job.skill_list) if app_row.parsed else None
     nlp = scoring.interview_nlp_summary(app_row.interview) if app_row.interview else None
+    rq = None
+    if resume_questions.count_for(app_row.job):
+        _, reason = resume_questions.plan_entries(app_row)
+        rq = {"count": resume_questions.count_for(app_row.job), "ready": resume_questions.is_ready(app_row),
+              "reason": reason, "can_prepare": resume_questions.wanted(app_row),
+              "labels": resume_questions.SOURCE_LABELS}
     return render_template("hr/application.html", a=app_row, labels=Application.STATUS_LABELS,
-                           hr_statuses=Application.HR_STATUSES, summary=summary, nlp=nlp)
+                           hr_statuses=Application.HR_STATUSES, summary=summary, nlp=nlp, rq=rq)
+
+
+@bp.post("/applications/<int:app_id>/resume-questions")
+@hr_only
+def prepare_resume_questions(app_id):
+    app_row = db.get_or_404(Application, app_id)
+    if not resume_questions.wanted(app_row):
+        flash("Resume-based questions aren't available for this application.", "warning")
+    else:
+        resume_questions.queue(app_row, force=True)
+        audit("application.resume_questions_requested", target=app_row.candidate, application_id=app_row.id)
+        db.session.commit()
+        flash("Preparing new resume-based questions (one AI request). Interviews that already started keep "
+              "their questions.", "success")
+    return redirect(url_for("hr.application", app_id=app_row.id))
 
 
 @bp.post("/applications/<int:app_id>/status")
@@ -376,6 +398,26 @@ def move_question(question_id):
             item.position = pos
         db.session.commit()
     return redirect(url_for("hr.questions", job_id=q.job_id))
+
+
+@bp.post("/jobs/<int:job_id>/resume-question-count")
+@hr_only
+def resume_question_count(job_id):
+    job = db.get_or_404(Job, job_id)
+    try:
+        count = int(request.form.get("count", ""))
+    except ValueError:
+        count = -1
+    maximum = current_app.config["RESUME_QUESTIONS_MAX"]
+    if not 0 <= count <= maximum:
+        flash(f"Choose between 0 and {maximum} resume-based questions.", "warning")
+    elif count != job.resume_question_count:
+        old, job.resume_question_count = job.resume_question_count, count
+        audit("job.resume_questions_changed", job_id=job.id, old=old, new=count)
+        db.session.commit()
+        flash("Saved. Upcoming interviews get an updated set automatically; interviews that already started keep "
+              "their questions." if count else "Saved. Candidates will get the job's questions only.", "success")
+    return redirect(url_for("hr.questions", job_id=job.id))
 
 
 @bp.post("/jobs/<int:job_id>/questions/defaults")

@@ -1,6 +1,7 @@
 import secrets
 from datetime import datetime, timedelta, timezone
 
+from flask import current_app
 from flask_login import UserMixin
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -182,6 +183,9 @@ class Job(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     embedding = db.Column(db.LargeBinary)  # float32 bytes of the job's semantic embedding (cached)
+    # Questions generated from each candidate's resume, asked in addition to the job's questions (0 = none)
+    resume_question_count = db.Column(db.Integer, nullable=False, server_default="3",
+                                      default=lambda: current_app.config["RESUME_QUESTIONS_DEFAULT"])
 
     applications = db.relationship("Application", back_populates="job", cascade="all, delete-orphan")
 
@@ -246,6 +250,16 @@ class Application(db.Model):
     analysis_error = db.Column(db.Text)
     analysis_attempts = db.Column(db.Integer, nullable=False, default=0)
     analysed_at = db.Column(db.DateTime(timezone=True))
+
+    # Interview questions generated from this candidate's resume (see services/resume_questions.py).
+    # resume_questions_key fingerprints what they were generated from, so outdated sets are never used.
+    RQ_PENDING, RQ_DONE, RQ_FAILED = "pending", "done", "failed"
+    resume_questions = db.Column(db.JSON)  # [{text, source, subject, reference, answer_seconds}]
+    resume_questions_status = db.Column(db.String(10))  # None = never requested
+    resume_questions_error = db.Column(db.Text)
+    resume_questions_key = db.Column(db.String(64))
+    resume_questions_at = db.Column(db.DateTime(timezone=True))  # last generated / requested
+
     status = db.Column(db.String(20), nullable=False, default=STATUS_REVIEW, index=True)
     status_source = db.Column(db.String(8), nullable=False, default=SOURCE_AUTO)
     withdrawn_at = db.Column(db.DateTime(timezone=True))
@@ -276,6 +290,12 @@ class Application(db.Model):
     @property
     def is_withdrawn(self):
         return self.status == self.STATUS_WITHDRAWN
+
+    @property
+    def resume_questions_preparing(self):
+        """Being generated right now (a request lost to a worker restart stops counting after 10 minutes)."""
+        return (self.resume_questions_status == self.RQ_PENDING and self.resume_questions_at is not None
+                and utcnow() - as_utc(self.resume_questions_at) < timedelta(minutes=10))
 
     @property
     def can_update_resume(self):
@@ -464,6 +484,14 @@ class InterviewAnswer(db.Model):
     is_follow_up = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     reference_answer = db.Column(db.Text)
     follow_up_target = db.Column(db.String(200))  # follow-ups only: the missing concept it probes
+    question_source = db.Column(db.String(200))  # resume-based questions: what it asks about, e.g. "Project: X"
+
+    CATEGORY_LABELS = {"technical": "Technical", "behavioral": "Behavioural", "situational": "Situational",
+                       "resume": "From resume"}
+
+    @property
+    def category_label(self):
+        return self.CATEGORY_LABELS.get(self.category, self.category)
 
     # Scoring (Phase 7): Gemini rubric + semantic similarity + speech metrics computed locally
     SCORE_PENDING = "pending"
@@ -528,7 +556,9 @@ class InterviewEvent(db.Model):
               "late_answer": "Answer submitted after the time limit",
               "follow_up_added": "Follow-up question added (weak technical answer)",
               "decision_timeout": "Follow-up decision timed out; moved on",
-              "follow_up_skipped": "Follow-up not asked (failed checks or not enough time)"}
+              "follow_up_skipped": "Follow-up not asked (failed checks or not enough time)",
+              "resume_questions_added": "Resume-based questions added",
+              "resume_questions_unavailable": "Resume-based questions not available; job questions only"}
     FLAGGED = {"tab_hidden", "window_blur", "question_restarted", "late_answer", "device_error"}
 
     id = db.Column(db.Integer, primary_key=True)

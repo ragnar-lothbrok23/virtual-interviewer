@@ -38,6 +38,34 @@
     <div class="alert alert-light border small"><i class="bi bi-calendar me-1"></i>Shortlisted: the candidate can book an interview.
       {% if not a.job.slots.count() %}<a href="{{ url_for('hr.slots', job_id=a.job.id) }}">Add interview slots</a> for this job first.{% endif %}</div>
     {% endif %}
+    {% if rq and (iv or a.status == 'shortlisted') %}
+    <div class="card shadow-sm mb-3" id="resume-questions"><div class="card-body">
+      <h6 class="mb-1">Resume-based questions <span class="small text-muted fw-normal">({{ rq.count }} per candidate)</span></h6>
+      <div class="small text-muted mb-2">Written from this candidate's resume and asked after the first question. Only HR sees them before the interview.</div>
+      {% if iv and iv.status not in ('scheduled', 'cancelled', 'no_show') %}
+        <div class="small text-muted">This interview has started; see the answers marked “From resume” below.</div>
+      {% elif rq.ready %}
+        <ol class="small ps-3 mb-2">
+          {% for q in a.resume_questions %}
+          <li class="mb-1">{{ q.text }} <span class="badge text-bg-light border fw-normal">{{ rq.labels.get(q.source, q.source) }}: {{ q.subject }}</span></li>
+          {% endfor %}
+        </ol>
+        {% if a.resume_questions_error %}<div class="small text-warning-emphasis mb-1">{{ a.resume_questions_error }}</div>{% endif %}
+        <div class="small text-muted">Prepared {{ a.resume_questions_at|localtime }}</div>
+      {% elif a.resume_questions_preparing %}
+        <div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Preparing questions from the resume…</div>
+      {% else %}
+        <div class="small {{ 'text-danger' if a.resume_questions_status == 'failed' else 'text-muted' }}">Not ready: {{ rq.reason }}.
+          {% if a.resume_questions_status != 'failed' and iv and iv.status == 'scheduled' %}They're prepared automatically before the interview.{% endif %}</div>
+      {% endif %}
+      {% if rq.can_prepare and not a.resume_questions_preparing and (not iv or iv.status == 'scheduled') %}
+      <form method="post" action="{{ url_for('hr.prepare_resume_questions', app_id=a.id) }}" class="mt-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-link btn-sm p-0">{{ 'Regenerate' if rq.ready else 'Prepare now' }}</button>
+      </form>
+      {% endif %}
+    </div></div>
+    {% endif %}
     <div class="card shadow-sm"><div class="card-body">
       <h6 class="mb-3">Decision</h6>
       {% if a.is_withdrawn %}
@@ -101,13 +129,16 @@
     <div class="card shadow-sm mb-3"><div class="card-body">
       <div class="d-flex justify-content-between gap-2">
         <div class="fw-semibold">Q{{ ans.position + 1 }}. {{ ans.question_text }}</div>
-        <span class="badge {{ 'text-bg-warning' if ans.is_follow_up else 'text-bg-light border' }} align-self-start text-nowrap">{{ 'Follow-up' if ans.is_follow_up else ans.category }}</span>
+        <span class="badge {{ 'text-bg-warning' if ans.is_follow_up else ('text-bg-info' if ans.category == 'resume' else 'text-bg-light border') }} align-self-start text-nowrap">{{ 'Follow-up' if ans.is_follow_up else ans.category_label }}</span>
       </div>
       <div class="small text-muted mb-2">
         {% if ans.is_submitted %}{{ '%.0f'|format(ans.duration_seconds or 0) }} s of {{ ans.answer_seconds }} s{% else %}Not answered{% endif %}
         {% if ans.attempts > 1 %}· <span class="text-warning">shown {{ ans.attempts }}× (reconnect)</span>{% endif %}
         {% if ans.late %}· <span class="text-danger">late</span>{% endif %}
       </div>
+      {% if ans.question_source %}
+      <div class="small mb-1"><i class="bi bi-file-earmark-person me-1 text-info"></i>About: {{ ans.question_source }}</div>
+      {% endif %}
       {% if ans.is_follow_up and ans.follow_up_target %}
       <div class="small mb-2"><i class="bi bi-bullseye me-1 text-warning"></i>Probes: {{ ans.follow_up_target }}</div>
       {% endif %}
@@ -189,6 +220,6 @@
 {% endblock %}
 {% block scripts %}
 {# 'iv' from the content block isn't visible here: blocks have their own scope #}
-{% set busy = a.is_analysing or (a.interview and a.interview.answers|selectattr('is_scoring')|list) %}
+{% set busy = a.is_analysing or a.resume_questions_preparing or (a.interview and a.interview.answers|selectattr('is_scoring')|list) %}
 {% if busy %}<script nonce="{{ csp_nonce() }}">setTimeout(() => location.reload(), 6000);</script>{% endif %}
 {% endblock %}

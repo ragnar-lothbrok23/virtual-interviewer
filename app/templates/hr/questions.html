@@ -55,6 +55,20 @@
     {% endfor %}
   </div>
   <div class="col-lg-4">
+    <div class="card shadow-sm mb-3"><div class="card-body">
+      <h5 class="mb-1">Resume-based questions</h5>
+      <p class="small text-muted">Extra questions written for each candidate from their own resume (experience, projects,
+        skills they listed), asked after the first question. Weak answers get a follow-up like technical questions.
+        The questions above stay the same for everyone. Uses one AI request per booked candidate.</p>
+      <form method="post" action="{{ url_for('hr.resume_question_count', job_id=job.id) }}" class="d-flex gap-2 align-items-center">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <select name="count" class="form-select form-select-sm w-auto" aria-label="Resume-based questions per candidate">
+          {% for n in range(config.RESUME_QUESTIONS_MAX + 1) %}<option value="{{ n }}" {{ 'selected' if n == job.resume_question_count }}>{{ n if n else 'None' }}</option>{% endfor %}
+        </select>
+        <span class="small text-muted">per candidate</span>
+        <button class="btn btn-sm btn-outline-primary ms-auto">Save</button>
+      </form>
+    </div></div>
     <div class="card shadow-sm"><div class="card-body">
       <h5 class="mb-3">Add a question</h5>
       {% if job.questions|length < max_questions %}

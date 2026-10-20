@@ -86,7 +86,8 @@ def _no_real_gemini(monkeypatch):
     def blocked(*args, **kwargs):
         raise AssertionError("A test tried to call the real Gemini API; use the fake_gemini fixture")
 
-    for name in ("parse_resume", "embed", "transcribe", "generate_reference", "score_answer", "generate_follow_up"):
+    for name in ("parse_resume", "embed", "transcribe", "generate_reference", "score_answer", "generate_follow_up",
+                 "generate_resume_questions"):
         monkeypatch.setattr(gemini, name, blocked)
     real_client = gemini._client
 
@@ -103,7 +104,10 @@ class FakeInterviewAI:
     """Deterministic interview AI: answers mentioning 'flask' are strong, others weak."""
 
     def __init__(self):
-        self.calls = {"reference": 0, "score": 0, "follow_up": 0, "transcribe": 0, "embed": 0}
+        self.calls = {"reference": 0, "score": 0, "follow_up": 0, "transcribe": 0, "embed": 0, "resume_questions": 0}
+        self.resume_questions = None  # None = the default three; tests set a list (or an error) to vary it
+        self.resume_error = None
+        self.last_resume_request = self.last_follow_up_category = None
         self.transcript = "Um, I built REST APIs with Flask and PostgreSQL."
         self.rubric_overrides = {}  # tests change single rubric fields (verdict, a malformed score, ...)
         self.follow_up_overrides = {}
@@ -137,20 +141,41 @@ class FakeInterviewAI:
         rubric.update(self.rubric_overrides)
         return rubric
 
-    def generate_follow_up(self, question, reference, transcript, job_title, upcoming=()):
+    def generate_follow_up(self, question, reference, transcript, job_title, upcoming=(), category="technical"):
         self.calls["follow_up"] += 1
         self.last_upcoming = list(upcoming)
+        self.last_follow_up_category = category
         follow_up = {"question": "Can you explain how you would design a REST endpoint in Flask?",
                      "target_concept": "REST endpoint design",
                      "reference_answer": "Flask route, HTTP methods, JSON, status codes, validation."}
         follow_up.update(self.follow_up_overrides)
         return follow_up
 
+    def generate_resume_questions(self, profile, job_title, skills, existing_questions, count):
+        self.calls["resume_questions"] += 1
+        self.last_resume_request = {"profile": profile, "existing": list(existing_questions), "count": count}
+        if self.resume_error:
+            raise self.resume_error
+        if self.resume_questions is not None:
+            return [dict(q) for q in self.resume_questions]
+        return [
+            {"source": "experience", "subject": "Zentrix",
+             "question": "At Zentrix, which API did you build yourself, and how did you design its endpoints?",
+             "reference_answer": "Names a concrete Flask API, their own role, endpoint design, data model and testing."},
+            {"source": "project", "subject": "Booking API",
+             "question": "In your Booking API project, how did you stop two users booking the same seat?",
+             "reference_answer": "Flask with transactions or row locks, unique constraints, handling the conflict response."},
+            {"source": "skill", "subject": "Flask",
+             "question": "How do you structure a larger Flask application, and why that way?",
+             "reference_answer": "Application factory, blueprints, config per environment, extensions, tests."},
+        ][:count]
+
 
 @pytest.fixture
 def interview_ai(monkeypatch):
     fake = FakeInterviewAI()
-    for name in ("transcribe", "generate_reference", "embed", "score_answer", "generate_follow_up"):
+    for name in ("transcribe", "generate_reference", "embed", "score_answer", "generate_follow_up",
+                 "generate_resume_questions"):
         monkeypatch.setattr(gemini, name, getattr(fake, name))
     return fake
 

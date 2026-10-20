@@ -166,6 +166,9 @@ def book(application, slot):
           job=application.job.title, starts_at=as_utc(slot.starts_at).isoformat())
     db.session.commit()
     _send(interview, "booked")
+    from .resume_questions import queue_if_booked
+
+    queue_if_booked(application)  # personalised questions are prepared in the background, well before the start
     return interview
 
 

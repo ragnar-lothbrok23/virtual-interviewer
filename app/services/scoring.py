@@ -112,8 +112,9 @@ def _similarity(answer):
 # ---------- adaptive follow-ups ----------
 
 def needs_decision(interview, answer):
-    """Only base technical answers can trigger a follow-up, and only while the interview has follow-ups left."""
-    return (answer.category == "technical" and not answer.is_follow_up
+    """Only base technical (and resume-based) answers can trigger a follow-up, and only while the interview has
+    follow-ups left."""
+    return (answer.category in current_app.config["FOLLOW_UP_CATEGORIES"] and not answer.is_follow_up
             and interview.follow_up_count < current_app.config["MAX_FOLLOW_UPS"])
 
 
@@ -171,7 +172,7 @@ def decide_follow_up(answer):
                     upcoming = [q["text"] for q in interview.question_plan[answer.position + 1:]]
                     candidate = gemini.generate_follow_up(answer.question_text, answer.reference_answer,
                                                           answer.transcript, interview.application.job.title,
-                                                          upcoming=upcoming)
+                                                          upcoming=upcoming, category=answer.category)
                     skipped = follow_up_problem(candidate, answer.question_text, answer.reference_answer)
                     follow_up = None if skipped else candidate
     except Exception as e:  # any failure (AI, network, bug) must not keep the candidate waiting
@@ -184,11 +185,11 @@ def decide_follow_up(answer):
         return None  # the room already timed out the decision and moved on
     if follow_up:
         plan = list(interview.question_plan)
-        plan.insert(answer.position + 1, {"text": follow_up["question"], "category": "technical",
+        plan.insert(answer.position + 1, {"text": follow_up["question"], "category": answer.category,
                                           "answer_seconds": answer.answer_seconds, "follow_up": True,
                                           "reference": follow_up["reference_answer"].strip(),
                                           "target": (follow_up.get("target_concept") or "").strip()[:200] or None,
-                                          "follows": answer.position})
+                                          "source": answer.question_source, "follows": answer.position})
         interview.question_plan = plan  # reassign so the JSON change is saved
         interview.follow_up_count += 1
         log_event(interview, "follow_up_added", answer.position,

@@ -206,7 +206,8 @@
     show("step-question");
     $("q-text").textContent = q.text;
     $("q-category").textContent = q.follow_up ? "Follow-up question"
-      : ({ technical: "Technical", behavioral: "Behavioural", situational: "Situational" }[q.category] || q.category);
+      : ({ technical: "Technical", behavioral: "Behavioural", situational: "Situational",
+         resume: "About your resume" }[q.category] || q.category);
     $("phase-prep").classList.remove("d-none");
     $("phase-record").classList.add("d-none");
     $("phase-upload").classList.add("d-none");

@@ -66,11 +66,18 @@ class BaseConfig:
     MAX_INTEGRITY_EVENTS = 500        # per interview, so a misbehaving client can't flood the table
     GEMINI_TRANSCRIBE_MODEL = os.getenv("GEMINI_TRANSCRIBE_MODEL", "").strip()  # empty = use GEMINI_MODEL
 
+    # Resume-based questions: generated per candidate from their parsed resume (experience, projects, skills).
+    # [impl] extension of the paper's "individualization" (3.3); 0 per job = paper-baseline interview.
+    RESUME_QUESTIONS_DEFAULT = 3      # [impl] per candidate, for new jobs (HR can change it per job)
+    RESUME_QUESTIONS_MAX = 5          # [impl]
+    RESUME_QUESTIONS_LOOKAHEAD_HOURS = 72  # housekeeping prepares missing/outdated sets for interviews this soon
+
     # Answer scoring and adaptive questions (paper Sections 3.2-3.4).
     # [paper] = value or rule stated in the paper; [impl] = implementation decision where the paper gives no number
     # (kept configurable so a paper-baseline configuration stays identifiable in evaluation; docs/ENHANCEMENTS.md).
     # The rule "follow up a technical answer with low semantic similarity" is [paper]; its numbers below are [impl].
     FOLLOW_UP_THRESHOLD = 55          # [impl] technical answers below this similarity score (0-100) get a follow-up
+    FOLLOW_UP_CATEGORIES = ("technical", "resume")  # [paper] technical; [impl] resume-based questions too
     MAX_FOLLOW_UPS = 3                # [impl] per interview; follow-ups never chain
     DECISION_TIMEOUT_SECONDS = 45     # [impl] if deciding on a follow-up takes longer, the interview just moves on
     ANSWER_SIMILARITY_FLOOR = 0.55    # [impl] cosine similarity (answer vs reference answer) mapped onto 0-100
@@ -170,6 +177,7 @@ class TestingConfig(BaseConfig):
     MAIL_DAILY_LIMIT = 450
     SHORTLIST_THRESHOLD = 60.0
     GEMINI_MODEL = "gemini-test-model"
+    RESUME_QUESTIONS_DEFAULT = 0  # tests that cover resume-based questions switch them on per job
     GEMINI_EMBED_MODEL = "gemini-test-embedding"
     FILE_ENCRYPTION_KEYS = "t1:dGVzdC1rZXktMzItYnl0ZXMtZm9yLWFlcy1nY20hISE="  # fixed 32-byte test key (b'test-key-32-bytes-for-aes-gcm!!!')
     APP_TIMEZONE = "Asia/Kolkata"

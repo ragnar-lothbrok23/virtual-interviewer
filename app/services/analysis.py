@@ -105,6 +105,9 @@ def run_analysis(application_id, retries_left=0):
     else:
         notify_application_status(application, old_status)
         sync_with_status(application)
+        from .resume_questions import queue_if_booked
+
+        queue_if_booked(application)  # the resume was re-analysed: an upcoming interview needs a fresh set
     return application.analysis_status
 
 

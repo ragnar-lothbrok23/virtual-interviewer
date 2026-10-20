@@ -125,9 +125,17 @@ enables secure cookies and HTTPS enforcement.
   gets one focused follow-up question (at most `MAX_FOLLOW_UPS` = 3 per interview). The room shows
   "Preparing your next question…" meanwhile; if the decision takes over 45 s the interview simply moves on.
 - HR sees every score, the quotes and strengths/gaps per answer, an interview NLP summary, and can re-score.
+- **Resume-based questions** (per job, 0-5, default 3; Job -> Questions): each candidate also gets questions written
+  from their own parsed resume -- a job/internship, a project and a required skill they only listed -- asking for
+  first-hand detail. They're generated in the background when the interview is booked (one AI request per
+  candidate), validated (must name an item really in the resume, no personal or sensitive topics, no repeats of the
+  job's questions), asked right after the first question, and weak answers get NLP follow-ups like technical
+  questions. HR previews them on the application page (candidates never see them in advance). If a set isn't ready
+  or is outdated when the interview starts, the interview runs with the job's questions only and HR sees why.
+  The job's own questions stay identical for every candidate; 0 gives a paper-baseline interview.
 - Calibration with real Gemini: strong / medium / weak spoken answers scored 87.5 / 53.5 / 30.9.
 
-Agreed but not yet implemented improvements are tracked in [docs/ENHANCEMENTS.md](docs/ENHANCEMENTS.md).
+Agreed improvements and their status are tracked in [docs/ENHANCEMENTS.md](docs/ENHANCEMENTS.md).
 
 ## Roles and accounts
 

@@ -455,4 +455,5 @@ def test_housekeeping_task_runs(app):
     from app.tasks import interview_housekeeping
 
     with app.app_context():
-        assert interview_housekeeping.call_local() == {"reminders": 0, "no_shows": 0, "timed_out": 0}
+        assert interview_housekeeping.call_local() == {"reminders": 0, "no_shows": 0, "timed_out": 0,
+                                                       "resume_questions": 0}

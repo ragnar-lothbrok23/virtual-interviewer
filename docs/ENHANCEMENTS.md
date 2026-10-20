@@ -57,6 +57,8 @@ edits a reference answer, and the existing suites on SQLite, PostgreSQL and the 
 | Follow-up threshold (similarity score < 55) | **Not specified** ("low") | Implementation decision (`FOLLOW_UP_THRESHOLD`) |
 | Maximum follow-ups (3), no chaining | **Not specified** | Implementation decision (`MAX_FOLLOW_UPS`) |
 | Decision timeout (45 s) | **Not specified** | Implementation decision (`DECISION_TIMEOUT_SECONDS`) |
+| Questions personalised from the candidate's **resume** | Motivated (§3.3 "Individualization", "personalized and role-conscious interviews"); tailoring to the candidate's background is named as **future work** | Implementation extension (Category B), `Job.resume_question_count` (0 = paper baseline) |
+| Follow-ups for resume-based answers | Not specified (rule is stated for technical answers) | Same similarity rule applied (`FOLLOW_UP_CATEGORIES`) |
 | Final score 0.75 NLP + 0.15 Emotion + 0.10 Context | Specified (§3.4, Eq. 1) | Phase 9 |
 | Turn latency 2.3 s per candidate turn | Reported result (§4.4, GPU server) | Measured in Phase 12; currently ~5–7 s after technical answers, ~1–2 s otherwise |
 
@@ -68,6 +70,26 @@ states the system is “not confined to a conversation flow”. It does not desc
 answering clarification questions. The implementation follows the same turn-based format.
 
 ---
+
+## Resume-based questions (requested and implemented 20 Oct 2026) — Category B
+
+Each candidate gets up to `Job.resume_question_count` questions (default 3, max 5) written from their parsed resume:
+experience, projects and a required skill whose evidence is only "listed". Asked after the first job question;
+weak answers get the paper's similarity-based follow-up.
+
+| Concern | Handling |
+|---|---|
+| Latency | Generated in the background at booking (one Gemini call per candidate, ~2–3 s); nothing added during the interview |
+| Comparability between candidates | The job's questions stay identical; resume questions are labelled "From resume" and scored on the same rubric |
+| Paper-baseline evaluation | `resume_question_count = 0` per job |
+| Prompt injection via the resume | Profile passed as untrusted data inside tags; output validated |
+| Invented or unfair questions | Each must name an experience/project/skill that exists in the profile; personal/sensitive topics (age, family, health, religion, caste, nationality, salary, gaps) rejected; repeats of job questions rejected; partial sets reported to HR |
+| Outdated sets (resume re-analysed, job or its questions edited, count changed) | Fingerprint of the inputs; housekeeping regenerates for interviews within 72 h; outdated sets are never used |
+| Generation failure | Retried by the worker; then hourly by housekeeping; HR can "Prepare now"; the interview falls back to job questions and logs why |
+| Old profiles (projects stored as strings) | Supported |
+
+Real Gemini check: 6/6 questions across two real resumes were specific (named the internship, project or skill)
+and passed validation.
 
 ## Deliberately not planned (or moved to a later phase)
 
