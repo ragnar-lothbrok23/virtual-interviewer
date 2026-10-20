@@ -141,6 +141,31 @@ right answers unaffected; interviews without follow-ups score exactly as before.
 (verdict, accuracy, notes) and the interview moves straight to the next planned question; at most `MAX_FOLLOW_UPS`
 (3) per interview. HR sees the original and its follow-up together.
 
+## Planned for Phase 12 (evaluation) — agreed 20 Oct 2026
+
+### Is DeepFace's emotion model good enough, or should a stronger one produce the emotion score?
+
+**Evidence so far (Phase 8, real interviews).** Face detection and attentiveness are reliable, but DeepFace's
+emotion classifier (FER-2013, 48x48 grayscale) is not: five near-identical neutral frames of one candidate were
+labelled angry, fear, sad, neutral and happy at 93-100% certainty; with the best preprocessing a neutral face was
+read as neutral only ~41% of the time and the top label changed between consecutive frames ~50-60% of the time.
+The user agreed DeepFace is inaccurate and chose to keep it for now and decide at the end.
+
+**Plan.** A labelled comparison on the user's own webcam: the user makes deliberate expressions (neutral, smile,
+surprise, sad, frown) for a few seconds each in the live preview while the intended expression is recorded; DeepFace
+and a modern in-the-wild expression model (e.g. one trained on AffectNet) are scored against those labels
+(accuracy, frame-to-frame stability, speed on CPU).
+
+**Options to decide between afterwards.**
+
+| Option | Meaning |
+|---|---|
+| A. Keep DeepFace | Paper-faithful; current mitigations (smoothing, whole-answer averages, reliability label, "insufficient" instead of low scores, HR caveats, 15% weight) |
+| B. Stronger model produces the score, DeepFace kept as baseline | Documented deviation from the paper (Category C); DeepFace still runs and is stored for comparison; detection/attentiveness unchanged |
+| C. Emotion score from attentiveness and integrity only | Most reliable, but drops the paper's confidence/nervousness signals |
+
+Switch only if the alternative wins clearly on the user's own footage, not on published numbers alone.
+
 ## Deliberately not planned (or moved to a later phase)
 
 | Idea | Decision | Reason |
