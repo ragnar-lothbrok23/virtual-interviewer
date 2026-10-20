@@ -12,8 +12,12 @@ import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 
+
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+# Same face-detector threshold as the interview analysis (app/config.py EMOTION_DETECTOR_THRESHOLD): YuNet's default
+# 0.9 missed faces in a dim room; 0.7 found them in every frame with no false faces
+os.environ.setdefault("yunet_score_threshold", "0.7")
 sys.stdout.reconfigure(encoding="utf-8")  # DeepFace logs emoji
 sys.stderr.reconfigure(encoding="utf-8")
 
@@ -36,8 +40,9 @@ def equalise(frame):
 class Analyzer(threading.Thread):
     """Runs DeepFace on the newest frame in the background so the video stays smooth."""
 
-    # yunet is fast but misses faces in dim or backlit rooms; retinaface is slower but far more robust
-    DETECTORS = ("yunet", "retinaface")
+    # Matches the interview analysis (app/services/emotion.py): yunet at threshold 0.7 finds faces even in dim
+    # rooms in ~15 ms (retinaface took ~2 s per frame and isn't needed)
+    DETECTORS = ("yunet",)
 
     def __init__(self):
         super().__init__(daemon=True)
@@ -66,13 +71,15 @@ class Analyzer(threading.Thread):
         DeepFace.analyze(blank, actions=["emotion"], detector_backend="skip", enforce_detection=False, silent=True)
 
     def _analyse(self, DeepFace, frame):
-        for detector in self.DETECTORS:
+        # Emotions are read from the original frame (brightness normalisation made them less plausible on real
+        # footage); the normalised frame is only a fallback when no face is found in the original
+        for label, image in (("yunet", frame), ("yunet, normalised", equalise(frame))):
             try:
-                face = DeepFace.analyze(frame, actions=["emotion"], detector_backend=detector,
+                face = DeepFace.analyze(image, actions=["emotion"], detector_backend="yunet", align=True,
                                         enforce_detection=True, silent=True)[0]
-                return face, detector
+                return face, label
             except ValueError:
-                continue  # no face with this detector; try the next one
+                continue  # no face; try the normalised frame
         return None, None
 
     def run(self):
@@ -94,7 +101,7 @@ class Analyzer(threading.Thread):
                     time.sleep(0.05)
                     continue
                 t = time.time()
-                face, detector = self._analyse(DeepFace, equalise(frame))
+                face, detector = self._analyse(DeepFace, frame)
                 if face is None:
                     self.result = None  # no face this frame
                 else:
