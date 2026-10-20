@@ -35,10 +35,11 @@ import numpy as np
 from flask import current_app
 
 from ..extensions import db
-from ..models import InterviewAnswer, utcnow
+from ..models import InterviewAnswer, InterviewEvent, utcnow
 
 EMOTIONS = ("angry", "disgust", "fear", "happy", "sad", "surprise", "neutral")
 COMPOSED = ("neutral", "happy")
+VIDEO_FLAGS = ("multiple_faces", "face_not_visible")  # integrity events derived from this analysis
 NERVOUS = ("fear", "sad")
 
 
@@ -268,6 +269,10 @@ def run_emotion(answer_id):
 
     cfg = current_app.config
     interview = answer.interview
+    # Re-analysis replaces this answer's earlier video flags instead of adding duplicates
+    InterviewEvent.query.filter(InterviewEvent.interview_id == interview.id,
+                                InterviewEvent.position == answer.position,
+                                InterviewEvent.kind.in_(VIDEO_FLAGS)).delete(synchronize_session=False)
     if summary["multi_face_frames"] >= cfg["EMOTION_MULTI_FACE_MIN_FRAMES"]:
         log_event(interview, "multiple_faces", answer.position,
                   seconds=round(summary["multi_face_frames"] / cfg["EMOTION_SAMPLE_FPS"], 1))

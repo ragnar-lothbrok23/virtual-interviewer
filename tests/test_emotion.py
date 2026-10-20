@@ -249,6 +249,23 @@ def test_integrity_flags_from_the_video(app, room, ai, fake_emotion, login):
 
 
 
+def test_reanalysis_replaces_the_video_flags(app, room, ai, fake_emotion, login):
+    fake_emotion.pattern = "nnnn" + "-" * 12 + "nnnn22nnnn"
+    started(room)
+    answer_question(room, 0)
+    a = answer_row(app, 0)
+    hr = login("hr@test.com")
+    hr.post(f"/hr/answers/{a.id}/emotion")
+    with app.app_context():
+        assert InterviewEvent.query.filter_by(kind="multiple_faces").count() == 1
+        assert InterviewEvent.query.filter_by(kind="face_not_visible").count() == 1
+    fake_emotion.pattern = "nnnnnnnnnnnn"  # e.g. after a fix: nothing to flag any more
+    hr.post(f"/hr/answers/{a.id}/emotion")
+    with app.app_context():
+        assert InterviewEvent.query.filter(InterviewEvent.kind.in_(emotion.VIDEO_FLAGS)).count() == 0
+        assert InterviewEvent.query.filter_by(kind="started").count() == 1  # other events untouched
+
+
 def test_analysis_failure_never_affects_the_interview(app, room, ai, fake_emotion):
     fake_emotion.error = RuntimeError("model crashed")
     started(room)
