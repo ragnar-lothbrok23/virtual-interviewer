@@ -417,7 +417,7 @@ class Interview(db.Model):
     answers = db.relationship("InterviewAnswer", back_populates="interview", cascade="all, delete-orphan",
                               order_by="InterviewAnswer.position")
     events = db.relationship("InterviewEvent", back_populates="interview", cascade="all, delete-orphan",
-                             order_by="InterviewEvent.id", lazy="dynamic")
+                             order_by="[InterviewEvent.created_at, InterviewEvent.id]", lazy="dynamic")
 
     @property
     def question_count(self):

@@ -4,6 +4,7 @@ The aggregation, preprocessing helpers, frame sampling and per-frame logic run f
 replaced by fakes except in the opt-in `--deepface` test, which runs the real models on a real face."""
 import io
 import math
+from datetime import timedelta
 from pathlib import Path
 
 import numpy as np
@@ -262,6 +263,26 @@ def test_integrity_flags_from_the_video(app, room, ai, fake_emotion, login):
     assert "Another face was visible on camera (Q1) (about 2 s)" in text
     assert "Face not visible on camera for a while (Q1) (about 6 s)" in text
 
+
+
+def test_video_flags_are_dated_when_they_happened(app, room, ai, fake_emotion, login):
+    # absence starts 2 s into the recording, the second face at 10 s (frames every 0.5 s)
+    fake_emotion.pattern = "nnnn" + "-" * 12 + "nnnn22nnnn"
+    started(room)
+    answer_question(room, 0)
+    room.frozen.tick(3600)  # analysed an hour later (e.g. re-analysed by HR)
+    a = answer_row(app, 0)
+    login("hr@test.com").post(f"/hr/answers/{a.id}/emotion")
+    with app.app_context():
+        from app.models import as_utc
+
+        start = as_utc(a.submitted_at) - timedelta(seconds=a.duration_seconds)
+        events = {e.kind: e for e in db.session.get(Interview, room.id).events.all()}
+        assert as_utc(events["face_not_visible"].created_at) == start + timedelta(seconds=2)
+        assert as_utc(events["multiple_faces"].created_at) == start + timedelta(seconds=10)
+        kinds = [e.kind for e in db.session.get(Interview, room.id).events.all()]
+        assert kinds.index("face_not_visible") < kinds.index("multiple_faces")  # timeline sorted by time
+        assert as_utc(events["multiple_faces"].created_at) < as_utc(a.submitted_at)
 
 
 def test_reanalysis_replaces_the_video_flags(app, room, ai, fake_emotion, login):

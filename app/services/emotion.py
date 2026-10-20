@@ -31,12 +31,13 @@ Eq. 1), and HR is shown these caveats.
 import io
 import math
 import threading
+from datetime import timedelta
 
 import numpy as np
 from flask import current_app
 
 from ..extensions import db
-from ..models import InterviewAnswer, InterviewEvent, utcnow
+from ..models import InterviewAnswer, InterviewEvent, as_utc, utcnow
 
 EMOTIONS = ("angry", "disgust", "fear", "happy", "sad", "surprise", "neutral")
 COMPOSED = ("neutral", "happy")
@@ -186,17 +187,20 @@ def aggregate(frames, cfg):
         timeline.append([t, max(current, key=current.get)])
 
     # Longest stretch without a visible face
-    longest, start = 0.0, None
+    longest, start, absence_at = 0.0, None, None
     step = (frames[1][0] - frames[0][0]) if n > 1 else 0.0
     for t, f in frames:
         if f["faces"] == 0 or not f["probs"]:
             start = t if start is None else start
-            longest = max(longest, t - start + step)
+            if t - start + step > longest:
+                longest, absence_at = t - start + step, start
         else:
             start = None
+    multi_at = next((t for t, f in frames if f["faces"] >= 2), None)
 
     summary = {"frames": n, "face_frames": len(with_face), "facing_frames": len(facing), "multi_face_frames": multi,
                "longest_absence_seconds": round(longest, 1), "flip_rate": round(flip_rate, 2),
+               "multi_face_at": multi_at, "absence_at": absence_at,  # seconds into the recording
                "timeline": _downsample(timeline, 60)}
     face_ratio = len(with_face) / n if n else 0.0
     if n < cfg["EMOTION_MIN_FRAMES"] or face_ratio < cfg["EMOTION_MIN_FACE_RATIO"]:
@@ -276,12 +280,23 @@ def run_emotion(answer_id):
                                 InterviewEvent.position == answer.position,
                                 InterviewEvent.kind.in_(VIDEO_FLAGS)).delete(synchronize_session=False)
     if summary["multi_face_frames"] >= cfg["EMOTION_MULTI_FACE_MIN_FRAMES"]:
-        log_event(interview, "multiple_faces", answer.position,
-                  seconds=round(summary["multi_face_frames"] / cfg["EMOTION_SAMPLE_FPS"], 1))
+        event = log_event(interview, "multiple_faces", answer.position,
+                          seconds=round(summary["multi_face_frames"] / cfg["EMOTION_SAMPLE_FPS"], 1))
+        _place_in_interview(event, answer, summary.get("multi_face_at"))
     if summary["longest_absence_seconds"] >= cfg["EMOTION_ABSENCE_FLAG_SECONDS"]:
-        log_event(interview, "face_not_visible", answer.position, seconds=summary["longest_absence_seconds"])
+        event = log_event(interview, "face_not_visible", answer.position, seconds=summary["longest_absence_seconds"])
+        _place_in_interview(event, answer, summary.get("absence_at"))
     db.session.commit()
     return answer.emotion_status
+
+
+def _place_in_interview(event, answer, offset_seconds):
+    """Video flags are found after the answer was recorded: date them when they happened in the interview (recording
+    start + offset), not when the analysis ran, so the timeline shows them in order."""
+    if event is None or answer.submitted_at is None:
+        return
+    started = as_utc(answer.submitted_at) - timedelta(seconds=answer.duration_seconds or 0)
+    event.created_at = started + timedelta(seconds=offset_seconds or 0)
 
 
 def interview_emotion_summary(interview):
