@@ -1,0 +1,6 @@
+# Optional: the paper's DeepFace emotion model, kept as a baseline for evaluation (EMOTION_MODEL=deepface).
+# The app uses HSEmotion by default and doesn't need these. They pull in TensorFlow (~1-2 GB).
+-r requirements.txt
+deepface==0.0.102
+tensorflow==2.21.0
+tf-keras==2.21.0

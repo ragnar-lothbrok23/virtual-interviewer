@@ -102,7 +102,7 @@ def _no_real_gemini(monkeypatch, request):
 
     monkeypatch.setattr(gemini, "_client", guarded_client)
 
-    if "deepface" not in request.keywords:
+    if "deepface" not in request.keywords and "real_emotion_model" not in request.keywords:
         def no_deepface():  # loading TensorFlow takes ~40 s; tests use the fake_emotion fixture instead
             raise emotion.EmotionError("DeepFace is disabled in tests")
 
@@ -230,7 +230,7 @@ def emotion_frames(pattern="nnnhhnnnhn", faces=1, yaw=0.05, step=0.5):
             frames.append((t, {"faces": 0, "probs": None, "yaw": None}))
             continue
         p = {e: 0.02 for e in emotion.EMOTIONS}
-        p[probs.get(c, "neutral")] = 0.88
+        p[probs.get(c, "neutral")] = 1 - 0.02 * (len(emotion.EMOTIONS) - 1)  # sums to 1
         frames.append((t, {"faces": 2 if c == "2" else faces, "probs": p, "yaw": yaw}))
     return frames
 

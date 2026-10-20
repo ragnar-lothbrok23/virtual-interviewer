@@ -1,4 +1,5 @@
-"""Live webcam emotion preview (DeepFace + yunet).
+"""Live webcam emotion preview, with the same face detection and expression model as the interview analysis
+(YuNet + HSEmotion, app/services/emotion.py).
 
 Usage: venv\\Scripts\\python live_emotion.py
 Keys:  S = save snapshot (to expression_snapshots/)   Q / Esc / close window = quit
@@ -12,42 +13,26 @@ import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 
-
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
-os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
-# Same face-detector threshold as the interview analysis (app/config.py EMOTION_DETECTOR_THRESHOLD): YuNet's default
-# 0.9 missed faces in a dim room; 0.7 found them in every frame with no false faces
-os.environ.setdefault("yunet_score_threshold", "0.7")
-sys.stdout.reconfigure(encoding="utf-8")  # DeepFace logs emoji
+sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
 import cv2
 from PIL import Image, ImageTk
 
-EMOTIONS = ["happy", "neutral", "surprise", "sad", "angry", "fear", "disgust"]
+EMOTIONS = ["happy", "neutral", "surprise", "sad", "angry", "fear", "disgust", "contempt"]
 COLORS = {"happy": "#2e9d5b", "neutral": "#6c757d", "surprise": "#e0a800", "sad": "#3b6fd1",
-          "angry": "#d63b3b", "fear": "#8a4fc7", "disgust": "#7a8a2e"}
+          "angry": "#d63b3b", "fear": "#8a4fc7", "disgust": "#7a8a2e", "contempt": "#a0522d"}
 SMOOTHING = 0.3  # weight of the newest reading in the moving average (paper 3.2: temporal smoothing)
 SNAP_DIR = Path(__file__).parent / "expression_snapshots"
 
 
-def equalise(frame):
-    ycc = cv2.cvtColor(frame, cv2.COLOR_BGR2YCrCb)
-    ycc[:, :, 0] = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(ycc[:, :, 0])
-    return cv2.cvtColor(ycc, cv2.COLOR_YCrCb2BGR)
-
-
 class Analyzer(threading.Thread):
-    """Runs DeepFace on the newest frame in the background so the video stays smooth."""
-
-    # Matches the interview analysis (app/services/emotion.py): yunet at threshold 0.7 finds faces even in dim
-    # rooms in ~15 ms (retinaface took ~2 s per frame and isn't needed)
-    DETECTORS = ("yunet",)
+    """Runs the interview pipeline on the newest frame in the background so the video stays smooth."""
 
     def __init__(self):
         super().__init__(daemon=True)
         self.frame = None
-        self.result = None  # (region, raw scores, smoothed scores, ms, detector)
+        self.result = None  # (region, raw scores, smoothed scores, ms, model)
         self.smoothed = None
         self.lock = threading.Lock()
         self.running = True
@@ -56,43 +41,21 @@ class Analyzer(threading.Thread):
         self.error = None  # any unexpected failure is shown instead of hanging on "Loading"
         self.started = time.time()
 
-    def _preload(self, DeepFace):
-        """Load every model once up front, so the first frames aren't silently slow."""
-        import numpy as np
-
-        blank = np.zeros((240, 320, 3), dtype=np.uint8)
-        for detector in self.DETECTORS:
-            self.stage = f"Loading face detector ({detector})…"
-            try:
-                DeepFace.extract_faces(blank, detector_backend=detector, enforce_detection=False)
-            except Exception:
-                pass  # some detectors complain about a blank image; the model is loaded anyway
-        self.stage = "Loading emotion model…"
-        DeepFace.analyze(blank, actions=["emotion"], detector_backend="skip", enforce_detection=False, silent=True)
-
-    def _analyse(self, DeepFace, frame):
-        # Emotions are read from the original frame (brightness normalisation made them less plausible on real
-        # footage); the normalised frame is only a fallback when no face is found in the original
-        for label, image in (("yunet", frame), ("yunet, normalised", equalise(frame))):
-            try:
-                face = DeepFace.analyze(image, actions=["emotion"], detector_backend="yunet", align=True,
-                                        enforce_detection=True, silent=True, expand_percentage=10)[0]
-                return face, label
-            except ValueError:
-                continue  # no face; try the normalised frame
-        return None, None
-
     def run(self):
         try:
-            self.stage = "Loading DeepFace / TensorFlow…"
+            self.stage = "Loading the face and expression models…"
             try:
-                from deepface import DeepFace
-            except ModuleNotFoundError:
+                from app import create_app
+                from app.services import emotion
+            except ModuleNotFoundError as e:
                 raise RuntimeError(
-                    f"DeepFace isn't installed for this Python ({sys.executable}, {sys.version.split()[0]}). "
-                    "Run it with the project's environment:  venv\\Scripts\\python live_emotion.py") from None
-
-            self._preload(DeepFace)
+                    f"The project's packages aren't installed for this Python ({sys.executable}, "
+                    f"{sys.version.split()[0]}): {e}. Run it with:  venv\\Scripts\\python live_emotion.py") from None
+            app = create_app()
+            with app.app_context():
+                cfg = dict(app.config)
+                models = emotion._load_models()
+            detector, classifier = models["detector"], models["classifier"]
             self.stage = "Waiting for camera…"
             while self.running:
                 with self.lock:
@@ -101,16 +64,25 @@ class Analyzer(threading.Thread):
                     time.sleep(0.05)
                     continue
                 t = time.time()
-                face, detector = self._analyse(DeepFace, frame)
-                if face is None:
+                prepared = emotion.equalise(frame)
+                with models["detect_lock"]:
+                    detector.setInputSize((prepared.shape[1], prepared.shape[0]))
+                    _, rows = detector.detect(prepared)
+                probs = None
+                if rows is not None and len(rows):
+                    row = max(rows, key=lambda r: r[2] * r[3])
+                    probs = classifier.predict(frame, prepared, row, cfg)
+                if probs is None:
                     self.result = None  # no face this frame
                 else:
-                    raw = {e: float(face["emotion"][e]) for e in EMOTIONS}
+                    raw = {e: 100 * probs.get(e, 0.0) for e in EMOTIONS}
                     if self.smoothed is None:
                         self.smoothed = raw
                     else:
                         self.smoothed = {e: SMOOTHING * raw[e] + (1 - SMOOTHING) * self.smoothed[e] for e in EMOTIONS}
-                    self.result = (face["region"], raw, dict(self.smoothed), (time.time() - t) * 1000, detector)
+                    x, y, w, h = (int(v) for v in row[:4])
+                    region = {"x": x, "y": y, "w": w, "h": h}
+                    self.result = (region, raw, dict(self.smoothed), (time.time() - t) * 1000, classifier.label)
                 self.ready = True
         except Exception as e:  # never die silently
             import traceback
@@ -193,7 +165,7 @@ class App:
             cv2.rectangle(frame, (x, y), (x + w, y + h), bgr, 2)
             cv2.putText(frame, f"{top} {smooth[top]:.0f}%", (x, max(20, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, bgr, 2)
             self.headline.config(text=top.capitalize(), fg=color)
-            self.sub.config(text=f"This frame: {max(raw, key=raw.get)}  ·  {ms:.0f} ms  ·  detector: {detector}")
+            self.sub.config(text=f"This frame: {max(raw, key=raw.get)}  ·  {ms:.0f} ms  ·  {detector}")
             for e in EMOTIONS:
                 canvas, value = self.bars[e]
                 canvas.delete("all")

@@ -30,11 +30,10 @@ av==18.1.0
 pypdf==6.21.1
 python-docx==1.2.0
 
-# Emotion detection (DeepFace on TensorFlow / tf-keras).
-# OpenCV comes from deepface (opencv-contrib-python-headless); don't add opencv-python, they clash.
-deepface==0.0.102
-tensorflow==2.21.0
-tf-keras==2.21.0
+# Facial expression analysis: HSEmotion models on ONNX Runtime, YuNet face detection with OpenCV.
+# Use opencv-contrib-python-headless only: opencv-python clashes with it (never install both).
+# The paper's DeepFace baseline is optional: requirements-deepface.txt.
+onnxruntime==1.31.0
 opencv-contrib-python-headless==5.0.0.93
 
 # Scoring, evaluation and report charts

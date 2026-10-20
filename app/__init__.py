@@ -230,6 +230,19 @@ def register_cli(app):
         click.echo(f"Interview {interview_id} now starts {format_local(interview.starts_at)}; the room opens "
                    f"{app.config['JOIN_EARLY_MINUTES']} minutes before that.")
 
+    @app.cli.command("download-emotion-models")
+    def download_emotion_models():
+        """Download and verify the facial analysis model files (run once when deploying)."""
+        from .services.emotion_models import ModelError, model_path
+
+        names = ["face_detection_yunet_2023mar", app.config["HSEMOTION_MODEL"]]
+        for name in names:
+            try:
+                path = model_path(name, app.config["EMOTION_MODEL_DIR"], download=True)
+            except ModelError as e:
+                raise click.ClickException(str(e))
+            click.echo(f"{name}: {path} (checksum OK)")
+
     @app.cli.command("queue-check")
     @click.option("--timeout", default=15, help="Seconds to wait for the worker.")
     def queue_check(timeout):

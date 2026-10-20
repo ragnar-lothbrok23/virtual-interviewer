@@ -142,15 +142,29 @@ class StubDetector:
         return 1, None if self.rows is None else np.array(self.rows, dtype=np.float32)
 
 
-class StubDeepFace:
-    def __init__(self, faces, fail_first=False):
-        self.faces, self.fail_first, self.calls = faces, fail_first, 0
+class StubClassifier:
+    """Stands in for HSEmotion/DeepFace: returns fixed probabilities and records what it was asked."""
 
-    def analyze(self, image, **kwargs):
+    label = "Stub model"
+
+    def __init__(self, top="neutral", result="default"):
+        self.top, self.result, self.calls, self.rows = top, result, 0, []
+
+    def predict(self, image, prepared, row, cfg):
         self.calls += 1
-        if self.fail_first and self.calls == 1:
-            raise ValueError("Face could not be detected")
-        return self.faces
+        self.rows.append(list(row))
+        if self.result != "default":
+            return self.result
+        p = {e: 0.01 for e in emotion.EMOTIONS}
+        p[self.top] = 1 - 0.01 * (len(emotion.EMOTIONS) - 1)
+        return p
+
+
+def models_with(rows, classifier=None):
+    import threading
+
+    return {"detector": StubDetector(rows), "classifier": classifier or StubClassifier(),
+            "detect_lock": threading.Lock()}
 
 
 def face_row(x, w, confidence=0.9):
@@ -158,18 +172,13 @@ def face_row(x, w, confidence=0.9):
             confidence]
 
 
-def df_face(x, w, top="neutral"):
-    scores = {e: 1.0 for e in emotion.EMOTIONS}
-    scores[top] = 94.0
-    return {"region": {"x": x, "y": 50, "w": w, "h": w}, "emotion": scores}
-
-
 def test_analyse_frame_reads_the_main_face(app):
-    models = {"detector": StubDetector([face_row(100, 120)]), "deepface": StubDeepFace([df_face(100, 120, "happy")])}
+    classifier = StubClassifier("happy")
+    models = models_with([face_row(380, 40), face_row(100, 120)], classifier)
     with app.app_context():
-        r = emotion.analyse_frame(np.zeros((300, 400, 3), np.uint8), models, app.config)
+        r = emotion.analyse_frame(np.zeros((300, 600, 3), np.uint8), models, app.config)
     assert r["faces"] == 1 and max(r["probs"], key=r["probs"].get) == "happy"
-    assert sum(r["probs"].values()) == pytest.approx(1.0) and r["yaw"] == pytest.approx(0.0)
+    assert r["yaw"] == pytest.approx(0.0) and classifier.rows[0][2] == 120  # the largest face is read
 
 
 def test_second_face_counts_only_when_clear_and_comparable(app):
@@ -179,47 +188,126 @@ def test_second_face_counts_only_when_clear_and_comparable(app):
              ([face_row(100, 120), face_row(350, 110, 0.6)], 1)]  # weak detection
     with app.app_context():
         for rows, expected in cases:
-            models = {"detector": StubDetector(rows), "deepface": StubDeepFace([df_face(100, 120)])}
-            assert emotion.analyse_frame(image, models, app.config)["faces"] == expected
+            assert emotion.analyse_frame(image, models_with(rows), app.config)["faces"] == expected
 
 
-def test_emotion_is_read_from_the_face_the_detector_chose(app):
-    deepface = StubDeepFace([df_face(380, 40, "angry"), df_face(100, 120, "happy")])
-    models = {"detector": StubDetector([face_row(100, 120)]), "deepface": deepface}
+@pytest.mark.parametrize("result", [None, {e: float("nan") for e in emotion.EMOTIONS}])
+def test_unreadable_expression_counts_as_no_reading(app, result):
     with app.app_context():
-        r = emotion.analyse_frame(np.zeros((300, 600, 3), np.uint8), models, app.config)
-    assert max(r["probs"], key=r["probs"].get) == "happy"
-
-
-def test_emotion_model_gets_the_configured_face_margin(app):
-    seen = {}
-
-    class Recording(StubDeepFace):
-        def analyze(self, image, **kwargs):
-            seen.update(kwargs)
-            return super().analyze(image, **kwargs)
-
-    models = {"detector": StubDetector([face_row(100, 120)]), "deepface": Recording([df_face(100, 120)])}
-    with app.app_context():
-        emotion.analyse_frame(np.zeros((300, 400, 3), np.uint8), models, app.config)
-    assert seen["expand_percentage"] == app.config["EMOTION_FACE_EXPAND"] == 10
-    assert seen["detector_backend"] == "yunet" and seen["align"] is True
-
-
-def test_falls_back_to_the_normalised_frame(app):
-    deepface = StubDeepFace([df_face(100, 120)], fail_first=True)
-    models = {"detector": StubDetector([face_row(100, 120)]), "deepface": deepface}
-    with app.app_context():
-        r = emotion.analyse_frame(np.zeros((300, 400, 3), np.uint8), models, app.config)
-    assert deepface.calls == 2 and r["probs"] is not None
+        r = emotion.analyse_frame(np.zeros((300, 400, 3), np.uint8),
+                                  models_with([face_row(100, 120)], StubClassifier(result=result)), app.config)
+    assert r["faces"] == 1 and r["probs"] is None
 
 
 def test_no_face_in_frame(app):
-    models = {"detector": StubDetector(None), "deepface": StubDeepFace([])}
+    classifier = StubClassifier()
     with app.app_context():
-        assert emotion.analyse_frame(np.zeros((300, 400, 3), np.uint8), models, app.config) == {
+        assert emotion.analyse_frame(np.zeros((300, 400, 3), np.uint8), models_with(None, classifier), app.config) == {
             "faces": 0, "probs": None, "yaw": None}
-    assert models["deepface"].calls == 0
+    assert classifier.calls == 0
+
+
+# ---------- the expression models ----------
+
+def test_aligned_square_levels_the_eyes_and_adds_the_margin():
+    from app.services.emotion_models import _aligned_square
+
+    image = np.zeros((400, 400, 3), np.uint8)
+    image[150:250, 150:250] = 255  # a white "face" box
+    row = [150, 150, 100, 100, 175, 190, 225, 210, 200, 220]  # eyes tilted by about 22 degrees
+    crop = _aligned_square(image, row, 0.1)
+    assert crop.shape[:2] == (120, 120)  # 100 px face + 10% on each side
+    assert crop[60, 60].tolist() == [255, 255, 255]  # centred on the face
+
+
+def test_aligned_square_at_the_frame_edge_is_filled_not_cut():
+    from app.services.emotion_models import _aligned_square
+
+    image = np.full((200, 200, 3), 90, np.uint8)
+    crop = _aligned_square(image, [0, 0, 80, 80, 20, 30, 60, 30, 40, 50], 0.2)
+    assert crop.shape[:2] == (112, 112) and crop.min() == 90  # edges replicated, no black borders
+
+
+class FakeSession:
+    def __init__(self, logits):
+        self.logits, self.inputs = logits, []
+
+    def run(self, outputs, feed):
+        self.inputs.append(feed["input"])
+        return [np.array([self.logits], dtype=np.float32)]
+
+
+def hsemotion_with(logits, model_name="enet_b0_8_best_afew"):
+    from app.services.emotion_models import HSEmotionClassifier
+
+    clf = HSEmotionClassifier.__new__(HSEmotionClassifier)
+    clf.session, clf.size, clf.label = FakeSession(logits), 224 if "_b0_" in model_name else 260, "HSEmotion test"
+    return clf
+
+
+def test_hsemotion_turns_logits_into_probabilities(app):
+    from app.services.emotion_models import HSEMOTION_CLASSES
+
+    logits = [0, 0, 0, 0, 4, 1, 0, 0]  # "happy" (index 4) clearly highest
+    clf = hsemotion_with(logits)
+    with app.app_context():
+        p = clf.predict(np.full((300, 400, 3), 128, np.uint8), None, face_row(100, 120), app.config)
+    assert list(p) == list(HSEMOTION_CLASSES) and max(p, key=p.get) == "happy"
+    assert sum(p.values()) == pytest.approx(1.0)
+    x = clf.session.inputs[0]
+    assert x.shape == (1, 3, 224, 224) and x.dtype == np.float32  # RGB, ImageNet-normalised, channels first
+
+
+def test_hsemotion_rejects_non_finite_output(app):
+    clf = hsemotion_with([0, 0, float("nan"), 0, 0, 0, 0, 0])
+    with app.app_context():
+        assert clf.predict(np.zeros((300, 400, 3), np.uint8), None, face_row(100, 120), app.config) is None
+
+
+def test_model_files_are_checked_before_use(tmp_path, monkeypatch):
+    from app.services import emotion_models
+
+    source = tmp_path / "source.onnx"
+    source.write_bytes(b"model bytes")
+    good = emotion_models._sha256(source)
+    monkeypatch.setitem(emotion_models.MODEL_FILES, "test_model", (source.as_uri(), good))
+    target = tmp_path / "models"
+    with pytest.raises(emotion_models.ModelError, match="missing"):
+        emotion_models.model_path("test_model", target, download=False)
+    path = emotion_models.model_path("test_model", target)  # downloaded, then verified
+    assert path.read_bytes() == b"model bytes" and not path.with_suffix(".part").exists()
+    path.write_bytes(b"tampered")
+    with pytest.raises(emotion_models.ModelError, match="checksum"):
+        emotion_models.model_path("test_model", target)
+    with pytest.raises(emotion_models.ModelError, match="Unknown model"):
+        emotion_models.model_path("nope", target)
+
+
+def test_failed_download_leaves_nothing_behind(tmp_path, monkeypatch):
+    from app.services import emotion_models
+
+    monkeypatch.setitem(emotion_models.MODEL_FILES, "test_model", ((tmp_path / "absent.onnx").as_uri(), "0" * 64))
+    with pytest.raises(emotion_models.ModelError, match="Couldn't download"):
+        emotion_models.model_path("test_model", tmp_path / "models")
+    assert not list((tmp_path / "models").glob("*"))
+
+
+def test_unknown_model_setting_is_reported(app, monkeypatch):
+    from app.services import emotion_models
+
+    monkeypatch.setattr(emotion_models, "model_path", lambda name, directory, download=True: "unused")
+    monkeypatch.setitem(emotion_models._cache, "dummy", None)
+
+    class FakeCV2:
+        class FaceDetectorYN:
+            @staticmethod
+            def create(*args):
+                return object()
+
+    monkeypatch.setitem(__import__("sys").modules, "cv2", FakeCV2)
+    cfg = dict(app.config, EMOTION_MODEL="something-else")
+    with pytest.raises(emotion_models.ModelError, match="Unknown EMOTION_MODEL"):
+        emotion_models.load(cfg)
 
 
 # ---------- in the interview ----------
@@ -362,12 +450,10 @@ def test_consent_explains_the_video_analysis(app, room):
     assert "analysed on our own server for facial expressions and attentiveness" in page and "only you in view" in page
 
 
-# ---------- the real models (opt-in: venv\Scripts\pytest --deepface) ----------
+# ---------- the real models ----------
 
-@pytest.mark.deepface
-def test_real_deepface_on_a_real_face(app):
-    """A short video made from a webcam frame of a real face: the real detector and emotion model must find the face
-    in every frame and produce a complete, finite summary."""
+def _face_video():
+    """A short WebM made from a webcam frame of a real face."""
     import cv2
     from fractions import Fraction
 
@@ -384,8 +470,40 @@ def test_real_deepface_on_a_real_face(app):
                 f.mux(packet)
         for packet in stream.encode():
             f.mux(packet)
-    with app.app_context():
-        summary = emotion.analyse_recording(out.getvalue())
+    return out.getvalue()
+
+
+def _check_real_summary(summary):
     assert summary["status"] == "done" and summary["frames"] == summary["face_frames"] == 6
     assert summary["attentiveness"] == 100 and summary["multi_face_frames"] == 0
     assert all(math.isfinite(summary[k]) for k in ("score", "confidence", "nervousness", "attentiveness"))
+    assert sum(summary["distribution"].values()) == pytest.approx(100, abs=0.5)
+
+
+@pytest.mark.real_emotion_model
+def test_real_hsemotion_on_a_real_face(app):
+    """The model in use, with the real files (skipped when they haven't been downloaded)."""
+    from app.services.emotion_models import model_path, ModelError
+
+    try:
+        for name in ("face_detection_yunet_2023mar", app.config["HSEMOTION_MODEL"]):
+            model_path(name, app.config["EMOTION_MODEL_DIR"], download=False)
+    except ModelError as e:
+        pytest.skip(f"model files not downloaded: {e}")
+    with app.app_context():
+        summary = emotion.analyse_recording(_face_video())
+    _check_real_summary(summary)
+    assert summary["model"] == "HSEmotion enet_b0_8_best_afew"
+
+
+@pytest.mark.deepface
+def test_real_deepface_baseline_on_a_real_face(app):
+    """The paper's DeepFace, still selectable as a baseline (opt-in: venv\\Scripts\\pytest --deepface)."""
+    app.config["EMOTION_MODEL"] = "deepface"
+    try:
+        with app.app_context():
+            summary = emotion.analyse_recording(_face_video())
+    finally:
+        app.config["EMOTION_MODEL"] = "hsemotion"
+    _check_real_summary(summary)
+    assert summary["model"] == "DeepFace (paper baseline)" and summary["distribution"]["contempt"] == 0

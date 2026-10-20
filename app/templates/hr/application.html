@@ -139,7 +139,8 @@
     <div class="small text-muted">Facial expressions couldn't be assessed reliably in any answer (face not visible enough).</div>
     {% endif %}
   </div>
-  <div class="small text-muted mt-2">Facial expressions estimated with DeepFace (paper §3.2): composure (the paper's
+  <div class="small text-muted mt-2">Facial expressions estimated with {{ emo.model or 'HSEmotion' }} (the paper uses
+    DeepFace, §3.2; HSEmotion replaced it after reading 86% vs 57% of expressions correctly in a labelled test): composure (the paper's
     "confidence") = composed expressions (neutral, happy), nervousness = fear and sadness, attentiveness = face visible
     and turned to the camera; reliability = how steady the readings were from frame to frame.
     These estimates are indicative only: expression models are sensitive to lighting, camera quality, glasses and
@@ -227,7 +228,7 @@
       {% endif %}
       {% if ans.media_path and ans.emotion_status %}
       <div class="small mt-2 border-top pt-2 emotion-line">
-        <span class="text-muted me-1"><i class="bi bi-emoji-neutral me-1"></i>Expressions:</span>
+        <span class="text-muted me-1" title="{{ ans.emotion.model if ans.emotion and ans.emotion.model else 'DeepFace (analysed before the model change)' }}"><i class="bi bi-emoji-neutral me-1"></i>Expressions:</span>
         {% if ans.emotion_status == 'done' %}
           {% set e = ans.emotion %}
           <span class="me-2">Emotion {{ ans.emotion_score|round|int }}</span>
@@ -237,8 +238,8 @@
           <span class="text-muted me-2">mostly {{ e.dominant }}</span>
           {% if e.reliability != 'high' %}<span class="badge text-bg-light border" title="How steady the readings were: the top expression changed between consecutive frames {{ (e.flip_rate * 100)|round|int }}% of the time (above 50% or face visible in under 80% of frames = low). Low means treat these numbers with caution.">{{ e.reliability }} reliability</span>{% endif %}
           <div class="progress mt-1" style="height: 6px" title="Share of each expression over the answer">
-            {% for name, color in [('neutral', '#6c757d'), ('happy', '#2e9d5b'), ('surprise', '#e0a800'), ('sad', '#3b6fd1'), ('fear', '#8a4fc7'), ('angry', '#d63b3b'), ('disgust', '#7a8a2e')] %}
-              {% if e.distribution[name] >= 1 %}<div class="progress-bar" style="width: {{ e.distribution[name] }}%; background-color: {{ color }}" title="{{ name }} {{ e.distribution[name]|round|int }}%"></div>{% endif %}
+            {% for name, color in [('neutral', '#6c757d'), ('happy', '#2e9d5b'), ('surprise', '#e0a800'), ('sad', '#3b6fd1'), ('fear', '#8a4fc7'), ('angry', '#d63b3b'), ('disgust', '#7a8a2e'), ('contempt', '#a0522d')] %}
+              {% if e.distribution.get(name, 0) >= 1 %}<div class="progress-bar" style="width: {{ e.distribution[name] }}%; background-color: {{ color }}" title="{{ name }} {{ e.distribution[name]|round|int }}%"></div>{% endif %}
             {% endfor %}
           </div>
         {% elif ans.emotion_status == 'insufficient' %}

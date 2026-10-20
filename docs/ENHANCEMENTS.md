@@ -62,7 +62,7 @@ edits a reference answer, and the existing suites on SQLite, PostgreSQL and the 
 | Follow-up also when the rubric verdict is incorrect / partially correct / off topic / don't know, even with high similarity | **Not in the paper** (rule is similarity only) | **Deviation (Category C)**, chosen by the user on 20 Oct 2026 after a real interview: six wrong but on-topic answers scored similarity 68–93 (accuracy 10/100) and got no follow-up. `FOLLOW_UP_TRIGGER` (`similarity` = paper baseline). No extra AI calls (rubric reused for scoring); decision 9–12 s measured |
 | Transcribing the audio track only | Not specified | Implementation decision: 3–5× faster than video (57 s answer: 7–12 s vs 24–67 s) |
 | Follow-ups for resume-based answers | Not specified (rule is stated for technical answers) | Same similarity rule applied (`FOLLOW_UP_CATEGORIES`) |
-| DeepFace facial analysis of the video for confidence, nervousness and attentiveness | Specified (§3.2) | Implemented (Phase 8) per recorded answer, on a separate worker |
+| DeepFace facial analysis of the video for confidence, nervousness and attentiveness | Specified (§3.2) | **Replaced by HSEmotion (deviation, Category C, chosen by the user on 20 Oct 2026)** after a labelled test: 86% vs 57% of frames correct, macro-F1 0.74 vs 0.26. DeepFace stays selectable as the paper baseline (`EMOTION_MODEL=deepface`). Analysis per recorded answer, on a separate worker |
 | Face alignment, histogram normalisation, temporal smoothing | Specified (§3.2) | Implemented: CLAHE for face detection (it made emotion readings worse, so DeepFace reads the original frame), DeepFace alignment, exponential moving average |
 | Mapping of DeepFace's 7 emotions to confidence / nervousness; attentiveness from face presence and head turn; emotion score = 50% confidence + 50% attentiveness; 2 frames/s; YuNet threshold 0.7 | **Not specified** | Implementation decisions (`EMOTION_*` settings) |
 | "Insufficient" instead of a low score when the face is visible in < 50% of frames; reliability label | Not specified | Implementation decision (fairness: lighting and camera problems must not lower a score) |
@@ -144,6 +144,26 @@ right answers unaffected; interviews without follow-ups score exactly as before.
 ## Planned for Phase 12 (evaluation) — agreed 20 Oct 2026
 
 ### Is DeepFace's emotion model good enough, or should a stronger one produce the emotion score?
+
+**Decided 20 Oct 2026 (earlier than planned):** the user chose to replace DeepFace with **HSEmotion**
+(`enet_b0_8_best_afew`, EfficientNet-B0 trained on AffectNet, ONNX Runtime) after the labelled test below was run:
+
+| On the user's labelled clip (238 frames) | DeepFace (fixed pipeline) | HSEmotion |
+|---|---|---|
+| Frames read correctly | 57% | 86% |
+| Macro-F1 (7 expressions) | 0.26 | 0.74 |
+| Held expressions correct | 7 of 12 | 11 of 12 |
+| Right group (composed / nervous / other) | 65% | 86% |
+| Surprise / sad / angry / fear / disgust recognised | ~0% each | 100 / 70 / 50 / 53 / 42% |
+| Model load / time per frame (incl. detection) | 18-40 s / ~76 ms | ~2 s / ~21 ms |
+
+Caveats: the model and margin were chosen on the same clip they were measured on (one person, one room), so the
+86% is optimistic for others; the gap to DeepFace is far larger than that effect. Phase 12 should repeat the test with
+more people. Implementation: `services/emotion_models.py` (SHA-256-checked model files, `download-emotion-models`
+command), faces aligned with a 10% margin, an eighth expression (contempt, counted as "other"), the model's name stored
+with every analysis. DeepFace remains selectable (`EMOTION_MODEL=deepface`, `requirements-deepface.txt`).
+
+**Original plan (kept for the record):**
 
 **Evidence so far (Phase 8, real interviews).** Face detection and attentiveness are reliable, but DeepFace's
 emotion classifier (FER-2013, 48x48 grayscale) is not: five near-identical neutral frames of one candidate were

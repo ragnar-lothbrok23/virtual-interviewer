@@ -70,11 +70,17 @@ class BaseConfig:
     # normalisation and temporal smoothing are [paper]; the numbers below are [impl]). Runs in its own worker:
     #   venv\Scripts\huey_consumer app.tasks.emotion_huey -k thread -w 1
     EMOTION_ENABLED = os.getenv("EMOTION_ENABLED", "1") == "1"
+    # Expression model: "hsemotion" (default; 86% vs 57% on a labelled test) or "deepface" (the paper's model, kept as
+    # a baseline for evaluation). [paper] DeepFace; [impl, deviation chosen by the user] HSEmotion.
+    EMOTION_MODEL = os.getenv("EMOTION_MODEL", "hsemotion")
+    HSEMOTION_MODEL = os.getenv("HSEMOTION_MODEL", "enet_b0_8_best_afew")
+    EMOTION_MODEL_DIR = Path(os.getenv("EMOTION_MODEL_DIR", INSTANCE_DIR / "models"))
+    EMOTION_MODEL_DOWNLOAD = os.getenv("EMOTION_MODEL_DOWNLOAD", "1") == "1"  # fetch missing model files on first use
     EMOTION_SAMPLE_FPS = 2            # [impl] frames analysed per second of recording (~27 ms each on CPU)
     EMOTION_MAX_FRAMES = 1200         # [impl] safety cap per answer (10 minutes at 2 fps)
     EMOTION_DETECTOR_THRESHOLD = 0.7  # [impl] YuNet; 0.9 (default) missed faces in a dim room, 0.7 had no false faces
-    # [impl] margin added around YuNet's face box before the emotion model reads it. Labelled test (238 frames of
-    # posed expressions): 0% -> 44% correct, smiles 18%; 10% -> 57% correct, smiles 82%; 20% 57%; 30% 53%; 40% 42%
+    # [impl] margin around the face box (percent of its size) before the expression model reads it. Labelled test
+    # (238 frames): HSEmotion 0% 85%, 10% 85% (best macro-F1), 20% 83%, 30% 76%; DeepFace 0% 44%, 10% 57%
     EMOTION_FACE_EXPAND = 10
     EMOTION_SECOND_FACE_CONFIDENCE = 0.7  # [impl] a real second person was detected at 0.71-0.87; no false faces at 0.5
     EMOTION_SMOOTHING = 0.3           # [impl] weight of the newest frame in the moving average
@@ -212,6 +218,7 @@ class TestingConfig(BaseConfig):
     RESUME_QUESTIONS_DEFAULT = 0  # tests that cover resume-based questions switch them on per job
     JD_QUESTIONS_DEFAULT = 0      # likewise for JD-based questions
     EMOTION_ENABLED = True        # the model itself is replaced by a fake in tests (see conftest)
+    EMOTION_MODEL_DOWNLOAD = False  # tests never download; the real-model test uses the files if present
     GEMINI_EMBED_MODEL = "gemini-test-embedding"
     FILE_ENCRYPTION_KEYS = "t1:dGVzdC1rZXktMzItYnl0ZXMtZm9yLWFlcy1nY20hISE="  # fixed 32-byte test key (b'test-key-32-bytes-for-aes-gcm!!!')
     APP_TIMEZONE = "Asia/Kolkata"

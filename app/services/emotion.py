@@ -1,36 +1,31 @@
-"""Facial emotion analysis of recorded answers with DeepFace (paper Section 3.2).
+"""Facial emotion analysis of recorded answers (paper Section 3.2).
 
 Per answer, in a separate background worker (so it never slows down transcription or follow-up decisions):
 
 1. Frames are sampled from the recording (EMOTION_SAMPLE_FPS) with PyAV.
-2. Faces are found with YuNet (one of DeepFace's detectors) on a histogram-normalised copy of the frame (CLAHE on
-   brightness, paper preprocessing). YuNet's default 0.9 threshold missed faces in a typical dim home webcam (12/60
-   frames); at 0.7 it found 60/60 with no false faces on face-masked, blank or noise frames. Its landmarks give face
-   presence, a second person in view, and head turn (attentiveness).
-3. DeepFace's emotion model reads the face through DeepFace's own crop and face alignment (paper preprocessing) on the
-   original frame, with a 10% margin around the face (EMOTION_FACE_EXPAND). Normalising the brightness first made the
-   emotion readings worse (it helps detection only). On a labelled test of posed expressions the tight crop read 44%
-   of frames correctly and missed most smiles; the 10% margin read 57% correctly (smiles 82%).
+2. Faces are found with YuNet on a histogram-normalised copy of the frame (CLAHE on brightness, paper preprocessing).
+   YuNet's default 0.9 threshold missed faces in a typical dim home webcam (12/60 frames); at 0.7 it found 60/60 with
+   no false faces on face-masked, blank or noise frames. Its landmarks give face presence, a second person in view,
+   and head turn (attentiveness).
+3. The expression model reads the face from the original frame, aligned (eyes level, paper preprocessing) with a 10%
+   margin (EMOTION_FACE_EXPAND). The model is HSEmotion (AffectNet-trained, ONNX Runtime): it replaced the paper's
+   DeepFace after a labelled test on the candidate's own webcam (86% vs 57% of frames read correctly, macro-F1 0.74 vs
+   0.26; see services/emotion_models.py). DeepFace remains selectable as the paper baseline (EMOTION_MODEL=deepface).
 4. Temporal smoothing (exponential moving average across frames) and whole-answer averages remove frame-to-frame
    flicker; a reliability label tells HR when the readings were unstable.
 
-Measured on a real interview (neutral face, glasses, backlit room): the emotion model labelled near-identical frames
-anywhere from "angry" to "happy" and changed its top label between consecutive frames about half the time. Hence the
-averaging, the reliability label and the caveats shown to HR.
-
 Signals the paper names (confidence, nervousness, attentiveness; 0-100):
-- confidence   = share of composed expressions (neutral + happy)
+- confidence   = share of composed expressions (neutral + happy), shown to HR as "composure"
 - nervousness  = share of fear + sad
 - attentiveness = share of sampled frames with the face visible and turned towards the camera
-The emotion score combines confidence and attentiveness (EMOTION_WEIGHTS). The mapping from DeepFace's 7 emotions to
-these signals is an implementation decision (the paper doesn't define it). Facial expression models are sensitive to
+The emotion score combines confidence and attentiveness (EMOTION_WEIGHTS). The mapping from the model's expressions
+to these signals is an implementation decision (the paper doesn't define it). Expression models are sensitive to
 lighting, camera quality and individual/cultural differences, so: answers where the face is visible in too few frames
 get no emotion score ("insufficient") instead of a low one, the emotion part is only 15% of the final score (paper
 Eq. 1), and HR is shown these caveats.
 """
 import io
 import math
-import threading
 from datetime import timedelta
 
 import numpy as np
@@ -39,7 +34,7 @@ from flask import current_app
 from ..extensions import db
 from ..models import InterviewAnswer, InterviewEvent, as_utc, utcnow
 
-EMOTIONS = ("angry", "disgust", "fear", "happy", "sad", "surprise", "neutral")
+from .emotion_models import HSEMOTION_CLASSES as EMOTIONS  # angry, contempt, disgust, fear, happy, neutral, ...
 COMPOSED = ("neutral", "happy")
 VIDEO_FLAGS = ("multiple_faces", "face_not_visible")  # integrity events derived from this analysis
 NERVOUS = ("fear", "sad")
@@ -51,30 +46,15 @@ class EmotionError(RuntimeError):
 
 # ---------- models (loaded once per worker process) ----------
 
-_models = None
-_models_lock = threading.Lock()
-_predict_lock = threading.Lock()  # TensorFlow models are not guaranteed thread-safe
-
-
 def _load_models():
-    global _models
-    with _models_lock:
-        if _models is None:
-            import os
+    from .emotion_models import ModelError, load
 
-            os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
-            try:
-                from deepface import DeepFace
-                from deepface.models.face_detection.YuNet import YuNetClient
-            except ImportError as e:
-                raise EmotionError(f"DeepFace is not installed: {e}") from e
-            # DeepFace reads YuNet's threshold from this variable (the worker process is dedicated to this)
-            os.environ["yunet_score_threshold"] = str(current_app.config["EMOTION_DETECTOR_THRESHOLD"])
-            detector = YuNetClient().model  # OpenCV's FaceDetectorYN with DeepFace's YuNet weights
-            blank = np.zeros((48, 48, 3), dtype=np.uint8)
-            DeepFace.analyze(blank, actions=["emotion"], detector_backend="skip", enforce_detection=False, silent=True)
-            _models = {"deepface": DeepFace, "detector": detector}
-    return _models
+    try:
+        return load(current_app.config)
+    except ModelError as e:
+        raise EmotionError(str(e)) from e
+    except ImportError as e:
+        raise EmotionError(f"The emotion model's library is not installed: {e}") from e
 
 
 # ---------- per frame ----------
@@ -129,7 +109,7 @@ def analyse_frame(image, models, cfg):
     detector = models["detector"]
     prepared = equalise(image)
     height, width = prepared.shape[:2]
-    with _predict_lock:
+    with models["detect_lock"]:  # one OpenCV detector object per process
         detector.setInputSize((width, height))
         detector.setScoreThreshold(cfg["EMOTION_DETECTOR_THRESHOLD"])
         _, rows = detector.detect(prepared)
@@ -140,29 +120,10 @@ def analyse_frame(image, models, cfg):
     main = rows[0]
     # A second person: a clearly detected face of comparable size (small or weak detections are ignored)
     others = [r for r in rows[1:] if r[-1] >= cfg["EMOTION_SECOND_FACE_CONFIDENCE"] and r[2] >= 0.4 * main[2]]
-    probs = None
-    for source in (image, prepared):  # the original frame first; the normalised one if DeepFace finds no face in it
-        try:
-            with _predict_lock:
-                faces = models["deepface"].analyze(source, actions=["emotion"], detector_backend="yunet", align=True,
-                                                   enforce_detection=True, silent=True,
-                                                   expand_percentage=cfg["EMOTION_FACE_EXPAND"])
-        except ValueError:
-            continue
-        face = max(faces, key=lambda f: _overlap(f["region"], main))  # the same face the detector chose
-        raw = {e: float(face["emotion"].get(e, 0.0)) for e in EMOTIONS}
-        total = sum(raw.values())
-        if total > 0 and all(math.isfinite(v) for v in raw.values()):
-            probs = {e: raw[e] / total for e in EMOTIONS}
-        break
+    probs = models["classifier"].predict(image, prepared, main, cfg)
+    if probs is not None and not all(math.isfinite(v) for v in probs.values()):
+        probs = None
     return {"faces": 1 + len(others), "probs": probs, "yaw": yaw_ratio(main)}
-
-
-def _overlap(region, row):
-    x, y, w, h = (float(v) for v in row[:4])
-    ix = max(0.0, min(region["x"] + region["w"], x + w) - max(region["x"], x))
-    iy = max(0.0, min(region["y"] + region["h"], y + h) - max(region["y"], y))
-    return ix * iy
 
 
 # ---------- per answer (pure: testable without TensorFlow) ----------
@@ -240,7 +201,9 @@ def analyse_recording(media):
     if not frames:
         raise EmotionError("The recording has no video frames.")
     models = _load_models()
-    return aggregate([(t, analyse_frame(image, models, cfg)) for t, image in frames], cfg)
+    summary = aggregate([(t, analyse_frame(image, models, cfg)) for t, image in frames], cfg)
+    summary["model"] = models["classifier"].label  # which model produced these numbers
+    return summary
 
 
 # ---------- task body ----------
@@ -310,6 +273,8 @@ def interview_emotion_summary(interview):
     counts = {}
     for a in done:
         counts[a.emotion["dominant"]] = counts.get(a.emotion["dominant"], 0) + 1
+    models = {a.emotion.get("model") for a in done}
     return {"answers": len(done), "analysed": len(analysed), "score": avg("emotion_score"),
+            "model": models.pop() if len(models) == 1 else None,
             "confidence": avg("emotion_confidence"), "nervousness": avg("emotion_nervousness"),
             "attentiveness": avg("emotion_attentiveness"), "dominant": max(counts, key=counts.get)}

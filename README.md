@@ -5,19 +5,20 @@ ranked, evidence-backed scorecards. It implements *"AI-Based Virtual Interviewer
 Emotion Detection"* (Bershika & Nancy, SCIS 2025).
 
 **Stack:** Flask · SQLAlchemy (PostgreSQL in production, SQLite in development) · Alembic migrations ·
-Huey background jobs (Redis in production) · Gemini API (parsing, scoring, embeddings) · DeepFace
+Huey background jobs (Redis in production) · Gemini API (parsing, scoring, embeddings) · HSEmotion (ONNX Runtime) for facial expressions
 (facial emotion) · Bootstrap 5.
 
 ## Local development (Windows)
 
-Requires Python 3.11 (TensorFlow does not support 3.12+ on Windows yet).
+Requires Python 3.11 (the optional DeepFace baseline needs TensorFlow, which does not support 3.12+ on Windows yet).
 
 ```powershell
 py -3.11 -m venv venv
 venv\Scripts\pip install -r requirements-dev.txt
 copy .env.example .env          # then fill in SECRET_KEY, GEMINI_API_KEY and FILE_ENCRYPTION_KEYS
-venv\Scriptslask --app run generate-encryption-key   # paste the output into FILE_ENCRYPTION_KEYS
+venv\Scripts\flask --app run generate-encryption-key   # paste the output into FILE_ENCRYPTION_KEYS
 venv\Scripts\flask --app run db upgrade
+venv\Scripts\flask --app run download-emotion-models   # facial analysis model files (checked by SHA-256)
 venv\Scripts\flask --app run create-admin    # first admin; invite HR users from the Admin panel
 venv\Scripts\flask --app run seed-jobs       # optional: three sample job roles
 ```
@@ -40,7 +41,7 @@ Run the app and the two background workers in three terminals:
 ```powershell
 venv\Scripts\python run.py                                           # http://127.0.0.1:5000
 venv\Scripts\huey_consumer app.tasks.huey -k thread -w 2             # background jobs (AI, email, housekeeping)
-venv\Scripts\huey_consumer app.tasks.emotion_huey -k thread -w 1     # facial emotion analysis (DeepFace)
+venv\Scripts\huey_consumer app.tasks.emotion_huey -k thread -w 1     # facial emotion analysis (HSEmotion)
 venv\Scripts\flask --app run queue-check                             # verify the main worker responds
 ```
 
@@ -53,7 +54,7 @@ loads TensorFlow once at its first job (~10-40 s); after that each answer takes 
 ```powershell
 venv\Scripts\pytest                     # SQLite
 venv\Scripts\pytest --postgres          # real PostgreSQL (embedded, no install needed)
-venv\Scripts\pytest --deepface          # also run the real DeepFace/TensorFlow models on a real face
+venv\Scripts\pytest --deepface          # also run the DeepFace baseline (TensorFlow) on a real face
 venv\Scripts\pytest --cov=app           # with coverage
 venv\Scripts\pytest --e2e               # also run real-browser tests (Chrome, simulated camera/mic)
 ```
@@ -92,7 +93,7 @@ enables secure cookies and HTTPS enforcement.
   (proven in projects/experience, only listed, missing) is shown alongside it for HR.
 - Editing a job's description re-scores its applicants; editing its required skills re-analyses them
   (one AI request each). HR decisions are never overwritten.
-- After upgrading from a version without encryption: `venv\Scriptslask --app run encrypt-existing-resumes`.
+- After upgrading from a version without encryption: `venv\Scripts\flask --app run encrypt-existing-resumes`.
 
 ## Interview scheduling
 
@@ -117,7 +118,7 @@ enables secure cookies and HTTPS enforcement.
   Tab switches, focus loss, reconnects, restarted questions and late answers are recorded for HR.
 - HR sees each answer's video, transcript and timing, plus an integrity timeline, on the applicant's page.
 - Browsers only allow camera and microphone on `https://` sites or `localhost`.
-- Development only: `venv\Scriptslask --app run dev-interview-soon <interview id>` moves a booked interview to
+- Development only: `venv\Scripts\flask --app run dev-interview-soon <interview id>` moves a booked interview to
   start in 5 minutes so the room can be tried immediately.
 
 ## Answer scoring and adaptive questions
@@ -158,20 +159,29 @@ enables secure cookies and HTTPS enforcement.
 
 Agreed improvements and their status are tracked in [docs/ENHANCEMENTS.md](docs/ENHANCEMENTS.md).
 
-## Facial emotion analysis (DeepFace)
+## Facial emotion analysis (HSEmotion)
 
 Each recorded answer is analysed on the emotion worker (paper §3.2): frames sampled at 2 per second, faces found
-with YuNet on a histogram-normalised frame, DeepFace's emotion model read through its own face crop and alignment,
-temporal smoothing across frames. Per answer HR sees **confidence** (composed expressions: neutral, happy),
+with YuNet on a histogram-normalised frame, the face aligned (eyes level) with a 10% margin, expressions read by
+**HSEmotion** (EfficientNet trained on AffectNet, run with ONNX Runtime), temporal smoothing across frames.
+
+**Model files:** downloaded once into `instance/models` and checked against SHA-256 checksums. When deploying run
+`venv\Scripts\flask --app run download-emotion-models` so the first interview doesn't wait for a download.
+
+**Why not the paper's DeepFace:** on a labelled test (238 webcam frames of a candidate's natural expressions, recorded
+with `expression_test.py`) HSEmotion read 86% of frames correctly against DeepFace's 57% (macro-F1 0.74 vs 0.26) and
+recognised every expression at least sometimes, where DeepFace almost never recognised surprise, sadness, anger or
+disgust. It also needs no TensorFlow: the worker loads in about 2 s and a frame takes about 21 ms. DeepFace remains
+available as the paper baseline: `EMOTION_MODEL=deepface` (install `requirements-deepface.txt`). Per answer HR sees **confidence** (composed expressions: neutral, happy),
 **nervousness** (fear, sadness), **attentiveness** (face visible and turned to the camera), the mix of expressions,
 an emotion score (50% confidence + 50% attentiveness) and a **reliability** label (how stable the readings were).
 Answers where the face was visible in too few frames get no emotion score ("not assessed"), never a low one.
 Another face on camera or the face out of view for 5 s are added to the integrity timeline.
 
 Measured on a real interview: YuNet's default threshold (0.9) missed the face in a dim room in 48 of 60 frames; at
-0.7 it found 60 of 60 with no false faces. DeepFace's emotion model is noisy on real webcams (near-identical neutral
-frames were labelled anything from angry to happy), which is why only smoothed whole-answer averages are used, HR
-sees the reliability and caveats, and emotion counts for 15% of the final score (paper Eq. 1, Phase 9).
+0.7 it found 60 of 60 with no false faces. Expression models remain imperfect on real webcams, so only smoothed
+whole-answer averages are used, HR sees the reliability and caveats, and emotion counts for 15% of the final score
+(paper Eq. 1, Phase 9). The test was one person in one room: results will vary across people, lighting and cameras.
 
 ## Roles and accounts
 
