@@ -178,7 +178,7 @@ def test_hr_sees_verdict_review_flag_and_quote_wording(app, room, ai, login):
     answer_question(room, 0)
     application_id = get(app, Interview, room.id).application_id
     page = login("hr@test.com").get(f"/hr/applications/{application_id}").get_data(as_text=True)
-    assert "Partially correct" in page and "Assessment confidence: low" in page
+    assert "Partially correct" in page and "AI certainty: low" in page
     assert "Needs human review" in page and "1 answer needs human review" in page
     assert "Quoted from the transcript" in page and "not that it is correct" in page
     assert "the weights are an implementation choice" in page

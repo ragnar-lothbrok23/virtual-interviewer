@@ -131,7 +131,7 @@
     {% if emo.answers %}
     <div><div class="small text-muted">Emotion score ({{ emo.answers }} answer{{ 's' if emo.answers != 1 }})</div>
       <div class="fs-3 fw-bold text-{{ score_color(emo.score) }}">{{ emo.score|round|int }}<span class="fs-6 text-muted">/100</span></div></div>
-    {% for label, key in [('Confidence', 'confidence'), ('Attentiveness', 'attentiveness'), ('Nervousness', 'nervousness')] %}
+    {% for label, key in [('Composure (confidence)', 'confidence'), ('Attentiveness', 'attentiveness'), ('Nervousness', 'nervousness')] %}
       <div style="min-width: 8rem"><div class="small text-muted">{{ label }}</div>{{ score_bar(emo[key]) }}</div>
     {% endfor %}
     <div class="small text-muted">Mostly {{ emo.dominant }}</div>
@@ -139,8 +139,9 @@
     <div class="small text-muted">Facial expressions couldn't be assessed reliably in any answer (face not visible enough).</div>
     {% endif %}
   </div>
-  <div class="small text-muted mt-2">Facial expressions estimated with DeepFace (paper §3.2): confidence = composed
-    expressions (neutral, happy), nervousness = fear and sadness, attentiveness = face visible and turned to the camera.
+  <div class="small text-muted mt-2">Facial expressions estimated with DeepFace (paper §3.2): composure (the paper's
+    "confidence") = composed expressions (neutral, happy), nervousness = fear and sadness, attentiveness = face visible
+    and turned to the camera; reliability = how steady the readings were from frame to frame.
     These estimates are indicative only: expression models are sensitive to lighting, camera quality, glasses and
     individual or cultural differences. They count for 15% of the final score (Phase 9) and should never decide alone.</div>
   {% endif %}
@@ -192,7 +193,7 @@
             {% set vcolor = {'correct': 'success', 'partially_correct': 'warning', 'incorrect': 'danger', 'off_topic': 'danger', 'dont_know': 'secondary', 'no_answer': 'secondary', 'clarification_request': 'info'}[ans.verdict] | default('secondary') %}
             <span class="badge text-bg-{{ vcolor }}">{{ ans.verdict_label }}</span>
             {% endif %}
-            {% if ans.confidence %}<span class="text-muted">Assessment confidence: {{ ans.confidence }}</span>{% endif %}
+            {% if ans.confidence %}<span class="text-muted" title="How sure the AI assessor is about its own judgement of this answer (low = check it yourself)">AI certainty: {{ ans.confidence }}</span>{% endif %}
             {% if ans.needs_review %}<span class="badge text-bg-warning"><i class="bi bi-person-check me-1"></i>Needs human review</span>{% endif %}
           </div>
           {% endif %}
@@ -230,11 +231,11 @@
         {% if ans.emotion_status == 'done' %}
           {% set e = ans.emotion %}
           <span class="me-2">Emotion {{ ans.emotion_score|round|int }}</span>
-          <span class="me-2">Confidence {{ ans.emotion_confidence|round|int }}</span>
+          <span class="me-2" title="Share of composed expressions (neutral, happy): the paper's &quot;confidence&quot;">Composure {{ ans.emotion_confidence|round|int }}</span>
           <span class="me-2">Attentiveness {{ ans.emotion_attentiveness|round|int }}</span>
           <span class="me-2">Nervousness {{ ans.emotion_nervousness|round|int }}</span>
           <span class="text-muted me-2">mostly {{ e.dominant }}</span>
-          {% if e.reliability != 'high' %}<span class="badge text-bg-light border" title="How much the readings changed from frame to frame ({{ (e.flip_rate * 100)|round|int }}% of frames)">{{ e.reliability }} reliability</span>{% endif %}
+          {% if e.reliability != 'high' %}<span class="badge text-bg-light border" title="How steady the readings were: the top expression changed between consecutive frames {{ (e.flip_rate * 100)|round|int }}% of the time (above 50% or face visible in under 80% of frames = low). Low means treat these numbers with caution.">{{ e.reliability }} reliability</span>{% endif %}
           <div class="progress mt-1" style="height: 6px" title="Share of each expression over the answer">
             {% for name, color in [('neutral', '#6c757d'), ('happy', '#2e9d5b'), ('surprise', '#e0a800'), ('sad', '#3b6fd1'), ('fear', '#8a4fc7'), ('angry', '#d63b3b'), ('disgust', '#7a8a2e')] %}
               {% if e.distribution[name] >= 1 %}<div class="progress-bar" style="width: {{ e.distribution[name] }}%; background-color: {{ color }}" title="{{ name }} {{ e.distribution[name]|round|int }}%"></div>{% endif %}

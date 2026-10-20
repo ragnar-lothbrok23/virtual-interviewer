@@ -217,7 +217,7 @@ def test_answers_are_analysed_and_hr_sees_the_results(app, room, ai, fake_emotio
     assert a.emotion["dominant"] == "neutral" and a.emotion_at is not None
     application_id = get(app, Interview, room.id).application_id
     page = login("hr@test.com").get(f"/hr/applications/{application_id}").get_data(as_text=True)
-    assert "Expressions:" in page and f"Confidence {round(a.emotion_confidence)}" in page
+    assert "Expressions:" in page and f"Composure {round(a.emotion_confidence)}" in page
     assert "Emotion score (1 answer)" in page and "indicative only" in page
     candidate_page = room.client.get(f"/candidate/applications/{application_id}").get_data(as_text=True)
     assert "Expressions:" not in candidate_page and "Nervousness" not in candidate_page
