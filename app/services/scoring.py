@@ -152,6 +152,27 @@ def follow_up_problem(follow_up, original_question, reference):
     return None
 
 
+def _follow_up_trigger(answer):
+    """Why this answer needs a follow-up ("similarity" or "verdict"), or None.
+
+    Low semantic similarity is the paper's rule and needs no further AI call. Otherwise, with FOLLOW_UP_TRIGGER =
+    "similarity_or_verdict", the rubric is run now (it's stored and reused for scoring, so it isn't called twice) and
+    a wrong, incomplete, off-topic or "don't know" verdict also triggers a follow-up."""
+    cfg = current_app.config
+    if answer.similarity_score < cfg["FOLLOW_UP_THRESHOLD"]:
+        return "similarity"
+    if cfg["FOLLOW_UP_TRIGGER"] != "similarity_or_verdict" or not answer.speech_detected:
+        return None
+    try:
+        score(answer.id)
+    except (GeminiError, ScoringError) as e:  # no verdict in time: decide on similarity alone; scoring retries later
+        db.session.rollback()
+        current_app.logger.info("No verdict for answer %s before the follow-up decision: %s", answer.id, e)
+        return None
+    db.session.refresh(answer)
+    return "verdict" if answer.verdict in cfg["FOLLOW_UP_VERDICTS"] else None
+
+
 def decide_follow_up(answer):
     """Called right after transcription while the interview waits. Never raises: on any problem the interview
     simply moves on without a follow-up."""
@@ -160,19 +181,22 @@ def decide_follow_up(answer):
     interview = answer.interview
     if interview.awaiting_decision_since is None:
         return None
-    follow_up = skipped = None
+    follow_up = skipped = trigger = None
     try:
         if answer.transcript_status == InterviewAnswer.TRANSCRIPT_DONE:
             answer.similarity, answer.similarity_score = _similarity(answer)
             db.session.commit()
-            if answer.similarity_score < current_app.config["FOLLOW_UP_THRESHOLD"] and answer.speech_detected:
+            trigger = _follow_up_trigger(answer)
+            if trigger and answer.speech_detected:
                 if not has_time_for_follow_up(interview, answer):
                     skipped = "not enough time left"
                 else:
                     upcoming = [q["text"] for q in interview.question_plan[answer.position + 1:]]
+                    notes = (answer.feedback or {}).get("gaps") or [] if trigger == "verdict" else []
                     candidate = gemini.generate_follow_up(answer.question_text, answer.reference_answer,
                                                           answer.transcript, interview.application.job.title,
-                                                          upcoming=upcoming, category=answer.category)
+                                                          upcoming=upcoming, category=answer.category,
+                                                          notes=notes)
                     skipped = follow_up_problem(candidate, answer.question_text, answer.reference_answer)
                     follow_up = None if skipped else candidate
     except Exception as e:  # any failure (AI, network, bug) must not keep the candidate waiting
@@ -192,8 +216,8 @@ def decide_follow_up(answer):
                                           "source": answer.question_source, "follows": answer.position})
         interview.question_plan = plan  # reassign so the JSON change is saved
         interview.follow_up_count += 1
-        log_event(interview, "follow_up_added", answer.position,
-                  similarity_score=answer.similarity_score)
+        log_event(interview, "follow_up_added", answer.position, similarity_score=answer.similarity_score,
+                  trigger=trigger, verdict=answer.verdict)
     elif skipped:
         log_event(interview, "follow_up_skipped", answer.position, reason=skipped)
         current_app.logger.info("Follow-up for answer %s skipped: %s", answer.id, skipped)

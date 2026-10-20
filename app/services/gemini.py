@@ -353,7 +353,7 @@ RESUME_ANSWER_RULES = ("This question is about the candidate's own resume (their
                        "work score low on accuracy; never assume details that weren't said.\n\n")
 
 
-def generate_follow_up(question, reference, transcript, job_title, upcoming=(), category="technical"):
+def generate_follow_up(question, reference, transcript, job_title, upcoming=(), category="technical", notes=()):
     """A focused follow-up probing what a weak answer missed (paper 3.3). `upcoming` lists the questions still to
     come, so the follow-up doesn't duplicate them. For resume-based questions it probes the candidate's own claim."""
     kind = ("question about their own resume (a project, job or skill they listed); the follow-up should ask for "
@@ -363,6 +363,8 @@ def generate_follow_up(question, reference, transcript, job_title, upcoming=(), 
               f"{ANSWER_SAFETY}\n\nOriginal question: {question}\n"
               f"What a strong answer covers:\n{reference}\n\n"
               f"<transcript>\n{transcript[:6000].replace('</transcript>', '')}\n</transcript>\n\n"
+              + ("The assessor's notes on this answer (what was wrong or missing):\n- " + "\n- ".join(notes)
+                 + "\n\n" if notes else "")
               + ("Questions still planned later in this interview (do NOT ask about the same thing):\n- "
                  + "\n- ".join(upcoming) + "\n\n" if upcoming else "")
               + "Write ONE focused follow-up question that probes the most important missing point or misconception, "

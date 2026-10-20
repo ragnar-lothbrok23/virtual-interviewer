@@ -84,6 +84,12 @@ class BaseConfig:
     # The rule "follow up a technical answer with low semantic similarity" is [paper]; its numbers below are [impl].
     FOLLOW_UP_THRESHOLD = 55          # [impl] technical answers below this similarity score (0-100) get a follow-up
     FOLLOW_UP_CATEGORIES = ("technical", "resume")  # [paper] technical; [impl] resume-based questions too
+    # What triggers a follow-up. "similarity" = [paper] only (low semantic similarity). "similarity_or_verdict" =
+    # [impl, deviation] also when the rubric judges the answer wrong/incomplete: a real interview showed confidently
+    # wrong answers that use the right vocabulary score high similarity (68-93) and never got one. The rubric then
+    # runs before the decision and is reused for scoring (no extra AI calls; ~3-5 s more wait after such answers).
+    FOLLOW_UP_TRIGGER = os.getenv("FOLLOW_UP_TRIGGER", "similarity_or_verdict")
+    FOLLOW_UP_VERDICTS = ("incorrect", "partially_correct", "off_topic", "dont_know")  # [impl]
     MAX_FOLLOW_UPS = 3                # [impl] per interview; follow-ups never chain
     DECISION_TIMEOUT_SECONDS = 45     # [impl] if deciding on a follow-up takes longer, the interview just moves on
     ANSWER_SIMILARITY_FLOOR = 0.55    # [impl] cosine similarity (answer vs reference answer) mapped onto 0-100

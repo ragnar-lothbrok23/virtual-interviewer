@@ -311,3 +311,89 @@ def test_rescoring_an_old_answer_shows_progress_then_new_time(app, room, ai, log
     page = hr.get(f"/hr/applications/{app_id}").get_data(as_text=True)
     assert SPINNER not in page and ">Re-score<" in page
     assert answer_row(app, 0).scored_at > first_scored and "Scored " in page
+
+
+# ---------- follow-up trigger: similarity (paper) or rubric verdict ----------
+
+ON_TOPIC_BUT_WRONG = "Flask automatically scales any app, so you never need a database or caching."
+
+
+def follow_up_events(app):
+    with app.app_context():
+        return [e.details for e in InterviewEvent.query.filter_by(kind="follow_up_added").all()]
+
+
+def test_wrong_answer_with_high_similarity_gets_a_follow_up(app, room, ai):
+    ai.transcript = ON_TOPIC_BUT_WRONG  # mentions Flask: high similarity in the fake
+    ai.rubric_overrides = {"verdict": "incorrect", "gaps": ["Flask does not scale an app by itself"]}
+    started(room)
+    answer_question(room, 0)
+    state = answer_question(room, 1)  # technical
+    assert state["question"]["follow_up"] is True
+    a = answer_row(app, 1)
+    assert a.similarity_score == 100 and a.verdict == "incorrect" and a.is_scored
+    assert ai.calls["score"] == 2  # answers 0 and 1, each scored once: the decision's rubric was reused
+    assert ai.last_follow_up_notes == ["Flask does not scale an app by itself"]  # targets the actual mistake
+    assert follow_up_events(app) == [{"similarity_score": 100.0, "trigger": "verdict", "verdict": "incorrect"}]
+
+
+@pytest.mark.parametrize("verdict, follows", [("correct", False), ("partially_correct", True), ("off_topic", True),
+                                              ("dont_know", True), ("clarification_request", False)])
+def test_verdicts_that_trigger_a_follow_up(app, room, ai, verdict, follows):
+    ai.rubric_overrides = {"verdict": verdict}
+    started(room)
+    answer_question(room, 0)
+    assert answer_question(room, 1)["question"]["follow_up"] is follows
+
+
+def test_low_similarity_follows_up_without_waiting_for_the_rubric(app, room, ai, monkeypatch):
+    ai.transcript = "Uh, I am not sure, maybe something with servers."
+    started(room)
+    answer_question(room, 0)
+    order = []
+    original_score, original_follow_up = ai.score_answer, ai.generate_follow_up
+    monkeypatch.setattr(gemini, "score_answer", lambda *a, **k: order.append("score") or original_score(*a, **k))
+    monkeypatch.setattr(gemini, "generate_follow_up",
+                        lambda *a, **k: order.append("follow_up") or original_follow_up(*a, **k))
+    state = answer_question(room, 1)
+    assert state["question"]["follow_up"] is True and order == ["follow_up", "score"]  # paper rule: fast path
+    assert follow_up_events(app)[0]["trigger"] == "similarity"
+
+
+def test_paper_only_setting_ignores_the_verdict(app, room, ai):
+    app.config["FOLLOW_UP_TRIGGER"] = "similarity"
+    try:
+        ai.transcript = ON_TOPIC_BUT_WRONG
+        ai.rubric_overrides = {"verdict": "incorrect"}
+        started(room)
+        answer_question(room, 0)
+        state = answer_question(room, 1)
+    finally:
+        app.config["FOLLOW_UP_TRIGGER"] = "similarity_or_verdict"
+    assert state["question"]["follow_up"] is False and answer_row(app, 1).verdict == "incorrect"
+
+
+def test_rubric_failure_during_the_decision_falls_back_to_similarity(app, room, ai, monkeypatch):
+    started(room)
+    answer_question(room, 0)
+    failures = {"left": 1}
+    original = ai.score_answer
+
+    def flaky(*args, **kwargs):
+        if failures["left"]:
+            failures["left"] -= 1
+            raise GeminiError("busy", retryable=True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(gemini, "score_answer", flaky)
+    ai.rubric_overrides = {"verdict": "incorrect"}
+    state = answer_question(room, 1)
+    assert state["question"]["follow_up"] is False  # no verdict in time: similarity (high) decides
+    assert answer_row(app, 1).is_scored  # the scoring job still scored it afterwards
+
+
+def test_behavioural_answers_never_run_the_rubric_early(app, room, ai):
+    ai.rubric_overrides = {"verdict": "incorrect"}
+    started(room)
+    state = answer_question(room, 0)  # behavioural
+    assert state["question"]["follow_up"] is False and not follow_up_events(app)

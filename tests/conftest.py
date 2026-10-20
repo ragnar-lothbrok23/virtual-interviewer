@@ -147,9 +147,11 @@ class FakeInterviewAI:
         rubric.update(self.rubric_overrides)
         return rubric
 
-    def generate_follow_up(self, question, reference, transcript, job_title, upcoming=(), category="technical"):
+    def generate_follow_up(self, question, reference, transcript, job_title, upcoming=(), category="technical",
+                           notes=()):
         self.calls["follow_up"] += 1
         self.last_upcoming = list(upcoming)
+        self.last_follow_up_notes = list(notes)
         self.last_follow_up_category = category
         follow_up = {"question": "Can you explain how you would design a REST endpoint in Flask?",
                      "target_concept": "REST endpoint design",

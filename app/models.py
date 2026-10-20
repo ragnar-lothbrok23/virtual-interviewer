@@ -582,7 +582,7 @@ class InterviewEvent(db.Model):
               "question_restarted": "Question shown again after reconnecting", "started": "Interview started",
               "finished": "Interview finished", "timed_out": "Interview timed out", "device_error": "Camera/mic problem",
               "late_answer": "Answer submitted after the time limit",
-              "follow_up_added": "Follow-up question added (weak technical answer)",
+              "follow_up_added": "Follow-up question added (weak answer)",
               "decision_timeout": "Follow-up decision timed out; moved on",
               "follow_up_skipped": "Follow-up not asked (failed checks or not enough time)",
               "resume_questions_added": "Resume-based questions added",

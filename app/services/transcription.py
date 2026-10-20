@@ -42,7 +42,9 @@ def run_transcription(answer_id, retries_left=0):
     db.session.commit()
     scoring.decide_follow_up(answer)  # time-critical: the candidate is waiting for the next question
 
-    from ..tasks import score_answer
+    db.session.refresh(answer)
+    if not answer.is_scored:  # the decision may already have scored it (verdict-based follow-ups)
+        from ..tasks import score_answer
 
-    score_answer(answer.id)
+        score_answer(answer.id)
     return answer.transcript_status

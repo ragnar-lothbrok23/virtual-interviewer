@@ -121,9 +121,16 @@ enables secure cookies and HTTPS enforcement.
   embeddings + cosine), a Gemini rubric (relevance, accuracy, fluency, clarity) with evidence quotes checked
   against the transcript, and locally measured speaking pace and filler words.
   Per-answer NLP score = 30% relevance + 30% accuracy + 20% similarity + 20% fluency (`NLP_WEIGHTS`).
-- Adaptive rule (paper §3.3): a technical answer whose similarity score is below `FOLLOW_UP_THRESHOLD` (55)
-  gets one focused follow-up question (at most `MAX_FOLLOW_UPS` = 3 per interview). The room shows
-  "Preparing your next question…" meanwhile; if the decision takes over 45 s the interview simply moves on.
+- Adaptive rule (paper §3.3): a technical (or resume-based) answer whose similarity score is below
+  `FOLLOW_UP_THRESHOLD` (55) gets one focused follow-up question (at most `MAX_FOLLOW_UPS` = 3 per interview).
+  Deviation (`FOLLOW_UP_TRIGGER=similarity_or_verdict`, default): an answer with high similarity also gets one when
+  the rubric judges it incorrect, partially correct, off topic or "don't know" -- on-topic but wrong answers score
+  high similarity. The rubric is then run before the decision and reused for scoring, and the follow-up targets the
+  assessor's noted gaps. `FOLLOW_UP_TRIGGER=similarity` restores the paper-only rule.
+  The room shows "Preparing your next question…" meanwhile (typically 5-15 s); if the decision takes over 45 s the
+  interview simply moves on.
+- Only the audio track of each recording is sent for transcription (copied out with PyAV), which is 3-5x faster
+  than sending the video; the video is kept for HR and emotion analysis.
 - HR sees every score, the quotes and strengths/gaps per answer, an interview NLP summary, and can re-score.
 - **JD-based technical questions** (per job, 0-8, default 4; Job -> Questions): Gemini writes technical questions
   from the job description and required skills -- one skill each, mixed difficulty, conceptual/design/debugging
