@@ -190,6 +190,21 @@ def test_emotion_is_read_from_the_face_the_detector_chose(app):
     assert max(r["probs"], key=r["probs"].get) == "happy"
 
 
+def test_emotion_model_gets_the_configured_face_margin(app):
+    seen = {}
+
+    class Recording(StubDeepFace):
+        def analyze(self, image, **kwargs):
+            seen.update(kwargs)
+            return super().analyze(image, **kwargs)
+
+    models = {"detector": StubDetector([face_row(100, 120)]), "deepface": Recording([df_face(100, 120)])}
+    with app.app_context():
+        emotion.analyse_frame(np.zeros((300, 400, 3), np.uint8), models, app.config)
+    assert seen["expand_percentage"] == app.config["EMOTION_FACE_EXPAND"] == 10
+    assert seen["detector_backend"] == "yunet" and seen["align"] is True
+
+
 def test_falls_back_to_the_normalised_frame(app):
     deepface = StubDeepFace([df_face(100, 120)], fail_first=True)
     models = {"detector": StubDetector([face_row(100, 120)]), "deepface": deepface}

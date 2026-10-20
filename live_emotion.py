@@ -76,7 +76,7 @@ class Analyzer(threading.Thread):
         for label, image in (("yunet", frame), ("yunet, normalised", equalise(frame))):
             try:
                 face = DeepFace.analyze(image, actions=["emotion"], detector_backend="yunet", align=True,
-                                        enforce_detection=True, silent=True)[0]
+                                        enforce_detection=True, silent=True, expand_percentage=10)[0]
                 return face, label
             except ValueError:
                 continue  # no face; try the normalised frame

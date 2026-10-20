@@ -8,8 +8,9 @@ Per answer, in a separate background worker (so it never slows down transcriptio
    frames); at 0.7 it found 60/60 with no false faces on face-masked, blank or noise frames. Its landmarks give face
    presence, a second person in view, and head turn (attentiveness).
 3. DeepFace's emotion model reads the face through DeepFace's own crop and face alignment (paper preprocessing) on the
-   original frame: on real footage this was the most plausible variant (normalising the brightness first made the
-   emotion readings worse, though it helps detection).
+   original frame, with a 10% margin around the face (EMOTION_FACE_EXPAND). Normalising the brightness first made the
+   emotion readings worse (it helps detection only). On a labelled test of posed expressions the tight crop read 44%
+   of frames correctly and missed most smiles; the 10% margin read 57% correctly (smiles 82%).
 4. Temporal smoothing (exponential moving average across frames) and whole-answer averages remove frame-to-frame
    flicker; a reliability label tells HR when the readings were unstable.
 
@@ -143,7 +144,8 @@ def analyse_frame(image, models, cfg):
         try:
             with _predict_lock:
                 faces = models["deepface"].analyze(source, actions=["emotion"], detector_backend="yunet", align=True,
-                                                   enforce_detection=True, silent=True)
+                                                   enforce_detection=True, silent=True,
+                                                   expand_percentage=cfg["EMOTION_FACE_EXPAND"])
         except ValueError:
             continue
         face = max(faces, key=lambda f: _overlap(f["region"], main))  # the same face the detector chose
