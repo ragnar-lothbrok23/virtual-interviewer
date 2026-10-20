@@ -305,7 +305,7 @@ def test_rescoring_an_old_answer_shows_progress_then_new_time(app, room, ai, log
     hr.post(f"/hr/answers/{a.id}/rescore")
     page = hr.get(f"/hr/applications/{app_id}").get_data(as_text=True)
     assert queued == [a.id]
-    assert SPINNER in page and "location.reload" in page and ">Re-score<" not in page
+    assert SPINNER in page and 'data-live-busy="1"' in page and ">Re-score<" not in page  # keeps refreshing
     with app.app_context():
         scoring.score(a.id)  # the worker runs
     page = hr.get(f"/hr/applications/{app_id}").get_data(as_text=True)

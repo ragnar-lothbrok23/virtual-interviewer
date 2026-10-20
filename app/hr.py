@@ -9,7 +9,7 @@ from sqlalchemy import case
 from .extensions import db, limiter
 from .forms import BulkSlotForm, CancelForm, JobForm, QuestionForm, SlotForm
 from .main import role_required
-from .models import Application, Interview, InterviewAnswer, InterviewQuestion, InterviewSlot, Job, User, utcnow
+from .models import Application, Interview, InterviewAnswer, InterviewQuestion, InterviewSlot, Job, User, as_utc, utcnow
 from .services import emotion, interview_room, jd_questions, resume_questions, scheduling, scoring, storage
 from .services.analysis import queue_analysis, resume_file_name
 from .services.notifications import notify_application_status
@@ -171,7 +171,23 @@ def application(app_id):
               "reason": reason, "can_prepare": resume_questions.wanted(app_row),
               "labels": resume_questions.SOURCE_LABELS}
     return render_template("hr/application.html", a=app_row, labels=Application.STATUS_LABELS,
-                           hr_statuses=Application.HR_STATUSES, summary=summary, nlp=nlp, rq=rq, emo=emo)
+                           hr_statuses=Application.HR_STATUSES, summary=summary, nlp=nlp, rq=rq, emo=emo,
+                           busy=_application_busy(app_row))
+
+
+def _application_busy(app_row):
+    """Whether background work on this page is still running (the page then refreshes its live parts)."""
+    if app_row.is_analysing or app_row.resume_questions_preparing:
+        return True
+    iv = app_row.interview
+    if iv is None:
+        return False
+    if iv.status == Interview.STATUS_IN_PROGRESS:
+        return True
+    recent = utcnow() - timedelta(minutes=15)  # a job lost to a worker restart must not keep the page polling
+    return any(x.is_scoring or x.is_emotion_running or (
+        x.is_submitted and x.transcript_status not in (InterviewAnswer.TRANSCRIPT_DONE, InterviewAnswer.TRANSCRIPT_FAILED)
+        and as_utc(x.submitted_at) > recent) for x in iv.answers)
 
 
 @bp.post("/applications/<int:app_id>/resume-questions")
@@ -511,7 +527,7 @@ def reanalyse_emotion(answer_id):
         audit("answer.emotion_requested", target=answer.interview.application.candidate, answer_id=answer.id)
         interview_room.queue_emotion(answer)
         flash("The facial expressions are being analysed again.", "info")
-    return redirect(url_for("hr.application", app_id=answer.interview.application_id) + "#interview-results")
+    return redirect(url_for("hr.application", app_id=answer.interview.application_id) + f"#answer-{answer.id}")
 
 
 @bp.post("/answers/<int:answer_id>/rescore")
@@ -530,4 +546,4 @@ def rescore_answer(answer_id):
 
         score_answer(answer.id)
         flash("The answer is being scored again.", "info")
-    return redirect(url_for("hr.application", app_id=answer.interview.application_id) + "#interview-results")
+    return redirect(url_for("hr.application", app_id=answer.interview.application_id) + f"#answer-{answer.id}")

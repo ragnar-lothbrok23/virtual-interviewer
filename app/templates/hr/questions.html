@@ -9,7 +9,7 @@
   created from the job's required skills when the first interview starts.{% endif %}</p>
 
 <div class="row g-4">
-  <div class="col-lg-8">
+  <div class="col-lg-8" data-live="question-list">
     {% for q in job.questions %}
     {% set f = edit_forms[q.id] %}
     <div class="card shadow-sm mb-3"><div class="card-body">
@@ -56,7 +56,8 @@
     {% endfor %}
   </div>
   <div class="col-lg-4">
-    <div class="card shadow-sm mb-3" id="jd-questions"><div class="card-body">
+    <div data-live-busy="{{ 1 if job.jd_questions_preparing else 0 }}" hidden></div>
+    <div class="card shadow-sm mb-3" id="jd-questions"><div class="card-body" data-live="jd-card">
       <h5 class="mb-1">Technical questions from the job description</h5>
       <p class="small text-muted">Written by the AI from the description and required skills, with reference answers.
         They're part of the list on the left (marked “From JD”), so every candidate gets the same ones. Edit any of
@@ -120,5 +121,5 @@
 </div>
 {% endblock %}
 {% block scripts %}
-{% if job.jd_questions_preparing %}<script nonce="{{ csp_nonce() }}">setTimeout(() => location.reload(), 6000);</script>{% endif %}
+<script src="{{ url_for('static', filename='js/live_refresh.js') }}"></script>
 {% endblock %}

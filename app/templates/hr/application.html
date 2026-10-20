@@ -14,10 +14,12 @@
 <div class="alert alert-secondary small mt-2"><i class="bi bi-box-arrow-left me-1"></i>The candidate withdrew this application{% if a.withdrawn_at %} on {{ a.withdrawn_at|localtime }}{% endif %}.</div>
 {% endif %}
 
+<div data-live-busy="{{ 1 if busy else 0 }}" hidden></div>
 <div class="row g-4 mt-1">
   <div class="col-lg-5">
-    {{ match_summary(a, summary) }}
+    <div data-live="match">{{ match_summary(a, summary) }}</div>
     {% set iv = a.interview %}
+    <div data-live="interview">
     {% if iv %}
     <div class="card shadow-sm mb-3"><div class="card-body">
       <h6 class="mb-2">Interview <span class="badge text-bg-{{ iv.status_color }}">{{ iv.status_label }}</span></h6>
@@ -38,6 +40,8 @@
     <div class="alert alert-light border small"><i class="bi bi-calendar me-1"></i>Shortlisted: the candidate can book an interview.
       {% if not a.job.slots.count() %}<a href="{{ url_for('hr.slots', job_id=a.job.id) }}">Add interview slots</a> for this job first.{% endif %}</div>
     {% endif %}
+    </div>
+    <div data-live="resume-questions">
     {% if rq and (iv or a.status == 'shortlisted') %}
     <div class="card shadow-sm mb-3" id="resume-questions"><div class="card-body">
       <h6 class="mb-1">Resume-based questions <span class="small text-muted fw-normal">({{ rq.count }} per candidate)</span></h6>
@@ -66,6 +70,7 @@
       {% endif %}
     </div></div>
     {% endif %}
+    </div>
     <div class="card shadow-sm"><div class="card-body">
       <h6 class="mb-3">Decision</h6>
       {% if a.is_withdrawn %}
@@ -104,10 +109,11 @@
 </div>
 
 {% if iv and iv.answers %}
-<h5 class="mt-4 mb-3" id="interview-results">Interview answers
+<h5 class="mt-4 mb-3" id="interview-results" data-live="results-heading">Interview answers
   <span class="small text-muted fw-normal">{{ iv.answers|selectattr('is_submitted')|list|length }} of {{ iv.question_count }} answered
   {% if iv.follow_up_count %}· {{ iv.follow_up_count }} follow-up(s){% endif %}
   {% if iv.end_reason == 'timed_out' %}· <span class="text-danger">timed out</span>{% endif %}</span></h5>
+<div data-live="interview-summary">
 {% if nlp %}
 <div class="card shadow-sm mb-3"><div class="card-body">
   <div class="d-flex flex-wrap align-items-center gap-4">
@@ -142,10 +148,11 @@
     (the components follow paper §3.4; the weights are an implementation choice). The final scorecard with emotion and context comes later.</div>
 </div></div>
 {% endif %}
+</div>
 <div class="row g-4">
   <div class="col-lg-8">
     {% for ans in iv.answers %}
-    <div class="card shadow-sm mb-3"><div class="card-body">
+    <div class="card shadow-sm mb-3" id="answer-{{ ans.id }}"><div class="card-body">
       <div class="d-flex justify-content-between gap-2">
         <div class="fw-semibold">Q{{ ans.position + 1 }}. {{ ans.question_text }}</div>
         <span class="badge {{ 'text-bg-warning' if ans.is_follow_up else ('text-bg-info' if ans.category == 'resume' else 'text-bg-light border') }} align-self-start text-nowrap">{{ 'Follow-up' if ans.is_follow_up else ans.category_label }}</span>
@@ -165,6 +172,7 @@
       <video class="w-100 rounded bg-dark mb-2" style="max-height: 320px" controls preload="metadata"
              src="{{ url_for('hr.answer_media', answer_id=ans.id) }}"></video>
       {% endif %}
+      <div data-live="answer-{{ ans.id }}">
       {% if ans.transcript_status == 'done' %}
         {% if ans.speech_detected %}<blockquote class="small mb-2 border-start border-3 ps-3">{{ ans.transcript }}</blockquote>
         {% else %}<div class="small text-muted fst-italic mb-2">No speech detected in this answer.</div>{% endif %}
@@ -249,11 +257,12 @@
         {% endif %}
       </div>
       {% endif %}
+      </div>
     </div></div>
     {% endfor %}
   </div>
   <div class="col-lg-4">
-    <div class="card shadow-sm"><div class="card-body">
+    <div class="card shadow-sm"><div class="card-body" data-live="integrity">
       <h6>Integrity timeline</h6>
       {% set evs = iv.events.all() %}
       {% set flagged = evs|selectattr('flagged')|list %}
@@ -271,7 +280,5 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-{# 'iv' from the content block isn't visible here: blocks have their own scope #}
-{% set busy = a.is_analysing or a.resume_questions_preparing or (a.interview and (a.interview.answers|selectattr('is_scoring')|list or a.interview.answers|selectattr('is_emotion_running')|list)) %}
-{% if busy %}<script nonce="{{ csp_nonce() }}">setTimeout(() => location.reload(), 6000);</script>{% endif %}
+<script src="{{ url_for('static', filename='js/live_refresh.js') }}"></script>
 {% endblock %}

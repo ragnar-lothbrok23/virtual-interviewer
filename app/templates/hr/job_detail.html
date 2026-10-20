@@ -27,7 +27,8 @@
 
 <div class="card shadow-sm">
   {% if applicants %}
-  <div class="table-responsive">
+  <div data-live-busy="{{ 1 if applicants|selectattr('is_analysing')|list else 0 }}" hidden></div>
+  <div class="table-responsive" data-live="applicants">
     <table class="table table-hover mb-0 align-middle">
       <thead class="table-light"><tr><th>#</th><th>Candidate</th><th style="width: 22%">Match score</th><th>Skills</th><th>Experience</th><th>Status</th><th>Interview</th><th></th></tr></thead>
       <tbody>
@@ -61,7 +62,5 @@
 </div>
 {% endblock %}
 {% block scripts %}
-{% if applicants|selectattr('is_analysing')|list %}
-<script nonce="{{ csp_nonce() }}">setTimeout(() => location.reload(), 8000);</script>
-{% endif %}
+<script src="{{ url_for('static', filename='js/live_refresh.js') }}"></script>
 {% endblock %}
