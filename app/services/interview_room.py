@@ -310,6 +310,9 @@ def finish(interview, reason):
                f"{answered} of {interview.question_count} answers recorded"
                + ("" if reason == Interview.END_COMPLETED else " (timed out)") + ".",
                f"/hr/applications/{application.id}")
+    from .scorecard import refresh
+
+    refresh(interview)  # first scorecard; it is recomputed as the remaining answers are scored and analysed
     return True
 
 

@@ -5,12 +5,15 @@ from urllib.parse import urlsplit
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, send_file, url_for
 from flask_login import current_user
 from sqlalchemy import case
+from werkzeug.utils import secure_filename
 
 from .extensions import db, limiter
 from .forms import BulkSlotForm, CancelForm, JobForm, QuestionForm, SlotForm
 from .main import role_required
-from .models import Application, Interview, InterviewAnswer, InterviewQuestion, InterviewSlot, Job, User, as_utc, utcnow
+from .models import (Application, Interview, InterviewAnswer, InterviewQuestion, InterviewSlot, Job, Scorecard, User,
+                     as_utc, utcnow)
 from .services import emotion, interview_room, jd_questions, resume_questions, scheduling, scoring, storage
+from .services import scorecard as scorecard_service
 from .services.analysis import queue_analysis, resume_file_name
 from .services.notifications import notify_application_status
 from .services.resume import skill_summary
@@ -512,6 +515,55 @@ def answer_media(answer_id):
     # conditional=True answers Range requests, so the video player can seek
     return send_file(io.BytesIO(data), mimetype=answer.media_type or "video/webm", conditional=True,
                      download_name=f"answer-{answer.position + 1}.{'mp4' if answer.media_type == 'video/mp4' else 'webm'}")
+
+
+@bp.route("/interviews/<int:interview_id>/scorecard")
+@hr_only
+def scorecard(interview_id):
+    interview = db.get_or_404(Interview, interview_id)
+    sc = interview.scorecard
+    if interview.status == Interview.STATUS_COMPLETED and sc is None:
+        sc = scorecard_service.refresh(interview)  # interviews finished before scorecards existed
+    busy = sc is not None and sc.status == Scorecard.STATUS_PROVISIONAL and (
+        sc.consistency_running or _application_busy(interview.application))
+    return render_template("hr/scorecard.html", iv=interview, a=interview.application, sc=sc, busy=busy,
+                           recommendation=scorecard_service.recommendation_label(sc.recommendation) if sc else None)
+
+
+@bp.route("/interviews/<int:interview_id>/scorecard.pdf")
+@hr_only
+@limiter.limit("60 per hour")
+def scorecard_pdf(interview_id):
+    from .services import scorecard_pdf as pdf
+
+    interview = db.get_or_404(Interview, interview_id)
+    sc = interview.scorecard
+    if sc is None or sc.final_score is None:
+        abort(404)
+    data = pdf.build(interview, sc, scorecard_service.recommendation_label(sc.recommendation))
+    candidate = interview.application.candidate
+    audit("scorecard.downloaded", target=candidate, interview_id=interview.id)
+    db.session.commit()
+    name = secure_filename(f"scorecard-{candidate.name}-{interview.application.job.title}") or "scorecard"
+    return send_file(io.BytesIO(data), mimetype="application/pdf", as_attachment=True,
+                     download_name=f"{name}-{interview.id}.pdf")
+
+
+@bp.post("/interviews/<int:interview_id>/scorecard/recheck")
+@hr_only
+@limiter.limit("30 per hour")
+def scorecard_recheck(interview_id):
+    interview = db.get_or_404(Interview, interview_id)
+    if interview.status != Interview.STATUS_COMPLETED:
+        flash("The scorecard is created when the interview finishes.", "warning")
+    elif not current_app.config["CONSISTENCY_CHECK_ENABLED"]:
+        flash("The consistency check is switched off on this server.", "warning")
+    else:
+        scorecard_service.recheck(interview)
+        audit("scorecard.recheck_requested", target=interview.application.candidate, interview_id=interview.id)
+        db.session.commit()
+        flash("Checking the interview's consistency again (one AI request).", "info")
+    return redirect(url_for("hr.scorecard", interview_id=interview.id))
 
 
 @bp.post("/answers/<int:answer_id>/emotion")

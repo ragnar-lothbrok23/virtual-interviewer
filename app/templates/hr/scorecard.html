@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% from "_macros.html" import score_color %}
+{% block title %}Scorecard · {{ a.candidate.name }} · {{ a.job.title }}{% endblock %}
+{% macro value(v, digits=0) -%}{% if v is none %}<span class="text-muted">not assessed</span>{% else %}{{ ('%.' ~ digits ~ 'f')|format(v) }}{% endif %}{%- endmacro %}
+{% macro bar(v) %}{% if v is not none %}<div class="progress mt-1" style="height: 6px"><div class="progress-bar bg-{{ score_color(v) }}" style="width: {{ v }}%"></div></div>{% endif %}{% endmacro %}
+{% block content %}
+<a href="{{ url_for('hr.application', app_id=a.id) }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> {{ a.candidate.name }} · {{ a.job.title }}</a>
+<div data-live-busy="{{ 1 if busy else 0 }}" hidden></div>
+
+<div data-live="scorecard">
+{% set d = sc.details if sc and sc.details else none %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mt-2 mb-3">
+  <div>
+    <h3 class="mb-1">Interview scorecard</h3>
+    <div class="small text-muted">{{ a.candidate.name }} · {{ a.job.title }} · interviewed {{ iv.started_at|localtime if iv.started_at else '—' }}
+      {% if sc and sc.computed_at %} · computed {{ sc.computed_at|localtime('%d %b, %I:%M %p') }}{% endif %}</div>
+  </div>
+  <div class="d-flex gap-2">
+    {% if sc and sc.final_score is not none %}
+    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('hr.scorecard_pdf', interview_id=iv.id) }}"><i class="bi bi-file-earmark-pdf me-1"></i>Download PDF</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if not sc or not d %}
+  <div class="alert alert-light border">The scorecard is created when the interview finishes.</div>
+{% else %}
+{% if sc.status != 'complete' %}
+<div class="alert {{ 'alert-warning' if sc.status == 'provisional' else 'alert-light border' }} small">
+  <i class="bi bi-hourglass-split me-1"></i><b>{{ sc.status_label }}.</b>
+  {% if sc.status == 'provisional' %}Some parts are still being processed{% if d.waiting %} ({{ d.waiting }} question(s) waiting for scoring){% endif %}{% if sc.consistency_running %}, consistency check running{% endif %}. The numbers update automatically.{% endif %}
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <div class="small text-muted">Final score</div>
+      {% if sc.final_score is not none %}
+      <div class="display-4 fw-bold text-{{ score_color(sc.final_score) }}">{{ sc.final_score|round|int }}<span class="fs-5 text-muted">/100</span></div>
+      <span class="badge text-bg-{{ {'strong': 'success', 'consider': 'warning', 'weak': 'secondary'}[sc.recommendation] }}">{{ recommendation }}</span>
+      <div class="small text-muted mt-2">AI recommendation only: the decision is HR's.</div>
+      {% else %}
+      <div class="text-muted">Not available yet: no answer has been scored.</div>
+      {% endif %}
+    </div></div>
+  </div>
+  <div class="col-lg-8">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <div class="small text-muted mb-2">FinalScore = 0.75 × NLP + 0.15 × Emotion + 0.10 × Context <span class="text-muted">(paper §3.4, Eq. 1)</span></div>
+      <table class="table table-sm align-middle mb-1">
+        <thead><tr><th>Component</th><th class="text-end">Score</th><th class="text-end">Paper weight</th><th class="text-end">Weight used</th><th style="width: 30%"></th></tr></thead>
+        <tbody>
+        {% for key, label in [('nlp', 'NLP (answer content)'), ('emotion', 'Emotion'), ('context', 'Context')] %}
+          {% set v = d[key] %}
+          <tr><td>{{ label }}</td><td class="text-end fw-semibold">{{ value(v, 1) }}</td>
+            <td class="text-end">{{ (d.paper_weights[key] * 100)|round|int }}%</td>
+            <td class="text-end">{% if key in d.weights %}{{ (d.weights[key] * 100)|round(1) }}%{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td>{{ bar(v) }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% for n in d.notes %}<div class="small text-muted"><i class="bi bi-info-circle me-1"></i>{{ n }}</div>{% endfor %}
+    </div></div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <h6>Speech</h6>
+      <div class="small text-muted mb-2">Shown for context (paper §3.4); fluency is part of the NLP score.</div>
+      <dl class="row small mb-0">
+        <dt class="col-7 fw-normal text-muted">Clarity</dt><dd class="col-5 text-end">{{ value(d.speech.clarity) }}</dd>
+        <dt class="col-7 fw-normal text-muted">Fluency</dt><dd class="col-5 text-end">{{ value(d.speech.fluency) }}</dd>
+        <dt class="col-7 fw-normal text-muted">Pace (words/min)</dt><dd class="col-5 text-end">{{ value(d.speech.words_per_minute) }}</dd>
+        <dt class="col-7 fw-normal text-muted">Filler words</dt><dd class="col-5 text-end">{{ d.speech.fillers }}</dd>
+      </dl>
+    </div></div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <h6>Emotion indicators</h6>
+      {% set ei = d.emotion_info %}
+      {% if ei.indicators %}
+      <dl class="row small mb-1">
+        <dt class="col-7 fw-normal text-muted">Confidence (composure)</dt><dd class="col-5 text-end">{{ value(ei.indicators.confidence) }}</dd>
+        <dt class="col-7 fw-normal text-muted">Engagement (attentiveness)</dt><dd class="col-5 text-end">{{ value(ei.indicators.engagement) }}</dd>
+        <dt class="col-7 fw-normal text-muted">Stability (calm)</dt><dd class="col-5 text-end">{{ value(ei.indicators.stability) }}</dd>
+      </dl>
+      <div class="small text-muted">{{ ei.counts.used }} answer(s) used{% if ei.counts.low_reliability %}, {{ ei.counts.low_reliability }} left out (low reliability){% endif %}{% if ei.counts.insufficient %}, {{ ei.counts.insufficient }} not assessed (face not visible){% endif %}. Model: {{ ei.models|join(', ') }}.</div>
+      {% else %}
+      <div class="small text-muted">Not assessed: no answer had reliable facial analysis{% if ei.counts.pending %} yet ({{ ei.counts.pending }} still being analysed){% endif %}.</div>
+      {% endif %}
+    </div></div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <h6>Context</h6>
+      <dl class="row small mb-1">
+        <dt class="col-7 fw-normal text-muted">Consistency</dt><dd class="col-5 text-end">{{ value(d.context_parts.consistency) }}</dd>
+        <dt class="col-7 fw-normal text-muted">Adjustability in follow-ups</dt><dd class="col-5 text-end">{% if d.context_parts.adjustability is none %}<span class="text-muted">no follow-ups</span>{% else %}{{ value(d.context_parts.adjustability) }}{% endif %}</dd>
+      </dl>
+      <div class="small text-muted">Adjustability: 50 = the follow-up answer was at the same level as the original, higher = it improved.</div>
+      {% if sc.consistency_status == 'failed' %}<div class="small text-danger mt-1">Consistency check failed: {{ sc.consistency_error }}</div>
+      {% elif sc.consistency_status == 'skipped' %}<div class="small text-muted mt-1">Consistency not checked: {{ sc.consistency_error }}.</div>
+      {% elif sc.consistency_running %}<div class="small text-muted mt-1"><span class="spinner-border spinner-border-sm me-1"></span>Checking consistency…</div>{% endif %}
+      {% if not sc.consistency_running %}
+      <form method="post" action="{{ url_for('hr.scorecard_recheck', interview_id=iv.id) }}" class="mt-1">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-link btn-sm p-0">{{ 'Check consistency again' if sc.consistency_status else 'Check consistency' }}</button>
+      </form>
+      {% endif %}
+    </div></div>
+  </div>
+</div>
+
+{% if sc.consistency_status == 'done' and sc.consistency %}
+{% set c = sc.consistency %}
+<div class="card shadow-sm mb-3"><div class="card-body">
+  <h6 class="mb-1">Consistency findings <span class="small text-muted fw-normal">({{ c.score|round|int }}/10 · AI certainty {{ c.confidence }})</span></h6>
+  <p class="small mb-2">{{ c.summary }}</p>
+  {% for x in c.contradictions %}
+  <div class="small border-start border-3 border-warning ps-2 mb-2"><b>Contradiction:</b> “{{ x.first_quote }}” vs “{{ x.second_quote }}” — {{ x.explanation }}</div>
+  {% endfor %}
+  {% for x in c.resume_mismatches %}
+  <div class="small border-start border-3 border-info ps-2 mb-2"><b>Differs from the resume</b> ({{ x.resume_claim }}): “{{ x.quote }}” — {{ x.explanation }}</div>
+  {% endfor %}
+  {% if not c.contradictions and not c.resume_mismatches %}<div class="small text-success"><i class="bi bi-check-circle me-1"></i>No contradictions found.</div>{% endif %}
+  <div class="small text-muted mt-1">Quotes are checked to appear in the transcripts{% if c.unverified_dropped %}; {{ c.unverified_dropped }} finding(s) the AI couldn't back with real quotes were dropped{% endif %}.</div>
+</div></div>
+{% endif %}
+
+<div class="card shadow-sm mb-3"><div class="card-body">
+  <h6 class="mb-1">Questions</h6>
+  <div class="small text-muted mb-2">One item per planned question. A follow-up better than the original answer recovers {{ (config.FOLLOW_UP_RECOVERY * 100)|round|int }}% of the gap and never lowers the item, so every candidate is scored on the same number of items.</div>
+  <div class="table-responsive">
+  <table class="table table-sm align-middle mb-0">
+    <thead><tr><th>#</th><th>Question</th><th>Type</th><th class="text-end">Answer</th><th class="text-end">Follow-up</th><th class="text-end">Item score</th></tr></thead>
+    <tbody>
+    {% for it in d['items'] %}
+    <tr>
+      <td class="text-muted">Q{{ it.position + 1 }}</td>
+      <td class="small">{{ it.question }}{% if it.source %}<div class="text-muted">{{ it.source }}</div>{% endif %}</td>
+      <td class="small">{{ {'technical': 'Technical', 'behavioral': 'Behavioural', 'situational': 'Situational', 'resume': 'From resume'}.get(it.category, it.category) }}</td>
+      <td class="text-end small">{% if it.original.state == 'scored' %}{{ it.original.nlp|round|int }}{% elif it.original.state == 'unanswered' %}<span class="text-danger">not answered</span>{% else %}<span class="text-muted">{{ it.original.state }}</span>{% endif %}</td>
+      <td class="text-end small">{% if it.follow_up %}{% if it.follow_up.state == 'scored' %}{{ it.follow_up.nlp|round|int }}{% else %}<span class="text-muted">{{ it.follow_up.state }}</span>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+      <td class="text-end fw-semibold">{% if it.score is none %}<span class="text-muted">waiting</span>{% else %}{{ it.score|round|int }}{% if it.state == 'recovered' %} <i class="bi bi-arrow-up-short text-success" title="Improved by the follow-up"></i>{% endif %}{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div></div>
+
+{% set flagged = iv.events.all()|selectattr('flagged')|list %}
+<div class="card shadow-sm mb-3"><div class="card-body">
+  <h6 class="mb-1">Integrity</h6>
+  <div class="small text-muted mb-2">Shown for HR's judgement; not part of the score.</div>
+  {% for e in flagged %}
+  <div class="small text-warning-emphasis">{{ e.created_at|localtime('%I:%M:%S %p') }} · {{ e.label }}{% if e.position is not none %} (Q{{ e.position + 1 }}){% endif %}{% if e.details and e.details.seconds %} (about {{ e.details.seconds|round|int }} s){% endif %}</div>
+  {% else %}<div class="small text-success"><i class="bi bi-check-circle me-1"></i>No integrity flags.</div>{% endfor %}
+</div></div>
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/live_refresh.js') }}"></script>
+{% endblock %}

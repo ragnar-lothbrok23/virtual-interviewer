@@ -288,7 +288,16 @@ def score(answer_id):
 
 
 def run_scoring(answer_id, retries_left=0):
-    """Task body: score with retry semantics like the other AI jobs."""
+    """Task body: score with retry semantics like the other AI jobs; the interview's scorecard is then recomputed."""
+    from .scorecard import refresh_for_answer
+
+    try:
+        return _run_scoring(answer_id, retries_left)
+    finally:
+        refresh_for_answer(answer_id)
+
+
+def _run_scoring(answer_id, retries_left=0):
     answer = db.session.get(InterviewAnswer, answer_id)
     if answer is None:
         return None

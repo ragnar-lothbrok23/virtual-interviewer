@@ -161,6 +161,15 @@ def prepare_jd_questions(job_id, task=None):
         return generate(job_id, retries_left=task.retries if task is not None else 0)
 
 
+@huey.task(retries=_cfg.ANALYSIS_RETRIES, retry_delay=_cfg.ANALYSIS_RETRY_DELAY, context=True)
+def check_consistency(interview_id, task=None):
+    """After an interview: one AI check for contradictions between answers and with the resume (scorecard context)."""
+    from .services.scorecard import run_consistency
+
+    with app_context():
+        return run_consistency(interview_id, retries_left=task.retries if task is not None else 0)
+
+
 @emotion_huey.task(context=True)
 def analyse_emotion(answer_id, task=None):
     """Facial emotion analysis of one recorded answer (DeepFace). Runs on its own worker; best-effort."""

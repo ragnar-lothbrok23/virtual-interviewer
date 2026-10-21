@@ -90,7 +90,7 @@ def _no_real_gemini(monkeypatch, request):
         raise AssertionError("A test tried to call the real Gemini API; use the fake_gemini fixture")
 
     for name in ("parse_resume", "embed", "transcribe", "generate_reference", "score_answer", "generate_follow_up",
-                 "generate_resume_questions", "generate_jd_questions"):
+                 "generate_resume_questions", "generate_jd_questions", "check_consistency"):
         monkeypatch.setattr(gemini, name, blocked)
     real_client = gemini._client
 
@@ -116,6 +116,9 @@ class FakeInterviewAI:
         self.calls = {"reference": 0, "score": 0, "follow_up": 0, "transcribe": 0, "embed": 0, "resume_questions": 0,
                       "jd_questions": 0}
         self.jd_questions = None  # None = the default four; tests set a list (or an error) to vary it
+        self.consistency = None  # None = consistent (9/10); tests set a dict (or an error) to vary it
+        self.consistency_error = None
+        self.last_consistency_request = None
         self.jd_error = None
         self.last_jd_request = None
         self.resume_questions = None  # None = the default three; tests set a list (or an error) to vary it
@@ -186,6 +189,16 @@ class FakeInterviewAI:
              "question": "How do you structure a larger Flask application, and why that way?",
              "reference_answer": "Application factory, blueprints, config per environment, extensions, tests."},
         ][:count]
+
+    def check_consistency(self, job_title, answers, profile):
+        self.calls["consistency"] = self.calls.get("consistency", 0) + 1
+        self.last_consistency_request = {"answers": list(answers), "profile": profile}
+        if self.consistency_error:
+            raise self.consistency_error
+        if self.consistency is not None:
+            return dict(self.consistency)
+        return {"consistency": 9, "summary": "The answers fit together.", "contradictions": [],
+                "resume_mismatches": [], "confidence": "high"}
 
     def generate_jd_questions(self, job_title, description, skills, existing_questions, count):
         self.calls["jd_questions"] += 1
@@ -264,7 +277,7 @@ def fake_emotion(monkeypatch):
 def interview_ai(monkeypatch):
     fake = FakeInterviewAI()
     for name in ("transcribe", "generate_reference", "embed", "score_answer", "generate_follow_up",
-                 "generate_resume_questions", "generate_jd_questions"):
+                 "generate_resume_questions", "generate_jd_questions", "check_consistency"):
         monkeypatch.setattr(gemini, name, getattr(fake, name))
     return fake
 

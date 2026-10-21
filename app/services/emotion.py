@@ -18,7 +18,8 @@ Signals the paper names (confidence, nervousness, attentiveness; 0-100):
 - confidence   = share of composed expressions (neutral + happy), shown to HR as "composure"
 - nervousness  = share of fear + sad
 - attentiveness = share of sampled frames with the face visible and turned towards the camera
-The emotion score combines confidence and attentiveness (EMOTION_WEIGHTS). The mapping from the model's expressions
+The emotion score combines the paper's three indicators (§3.4): confidence, engagement (attentiveness) and stability
+(100 - nervousness), a third each (EMOTION_WEIGHTS). The mapping from the model's expressions
 to these signals is an implementation decision (the paper doesn't define it). Expression models are sensitive to
 lighting, camera quality and individual/cultural differences, so: answers where the face is visible in too few frames
 get no emotion score ("insufficient") instead of a low one, the emotion part is only 15% of the final score (paper
@@ -174,16 +175,17 @@ def aggregate(frames, cfg):
     confidence = round(100 * sum(mean[e] for e in COMPOSED), 1)
     nervousness = round(100 * sum(mean[e] for e in NERVOUS), 1)
     attentiveness = round(100 * len(facing) / n, 1)
+    stability = round(100 - nervousness, 1)  # emotional stability: calm rather than fearful or sad
     w = cfg["EMOTION_WEIGHTS"]
-    score = round(w["confidence"] * confidence + w["attentiveness"] * attentiveness, 1)
-    for value in (confidence, nervousness, attentiveness, score):
+    score = round(w["confidence"] * confidence + w["attentiveness"] * attentiveness + w["stability"] * stability, 1)
+    for value in (confidence, nervousness, attentiveness, stability, score):
         if not math.isfinite(value):
             raise EmotionError("The emotion signals couldn't be computed.")
     reliability = ("low" if flip_rate > cfg["EMOTION_UNSTABLE_FLIP_RATE"] or face_ratio < 0.8 else
                    "medium" if flip_rate > cfg["EMOTION_UNSTABLE_FLIP_RATE"] / 2 else "high")
     summary.update(status="done", reliability=reliability, distribution={e: round(mean[e] * 100, 1) for e in EMOTIONS},
                    dominant=max(mean, key=mean.get), confidence=confidence, nervousness=nervousness,
-                   attentiveness=attentiveness, score=score)
+                   attentiveness=attentiveness, stability=stability, score=score)
     return summary
 
 
@@ -226,6 +228,9 @@ def run_emotion(answer_id):
         answer.emotion_at = utcnow()
         db.session.commit()
         current_app.logger.error("Emotion analysis of answer %s failed: %s", answer_id, e)
+        from .scorecard import refresh
+
+        refresh(answer.interview)
         return answer.emotion_status
     answer.emotion = summary
     answer.emotion_status = summary["status"]
@@ -250,6 +255,9 @@ def run_emotion(answer_id):
         event = log_event(interview, "face_not_visible", answer.position, seconds=summary["longest_absence_seconds"])
         _place_in_interview(event, answer, summary.get("absence_at"))
     db.session.commit()
+    from .scorecard import refresh
+
+    refresh(interview)
     return answer.emotion_status
 
 

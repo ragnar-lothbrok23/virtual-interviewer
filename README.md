@@ -183,6 +183,26 @@ Measured on a real interview: YuNet's default threshold (0.9) missed the face in
 whole-answer averages are used, HR sees the reliability and caveats, and emotion counts for 15% of the final score
 (paper Eq. 1, Phase 9). The test was one person in one room: results will vary across people, lighting and cameras.
 
+## Scorecard (paper §3.4)
+
+When an interview ends, each candidate gets a scorecard (HR → applicant → **Scorecard**, also as a PDF):
+
+**FinalScore = 0.75 × NLP + 0.15 × Emotion + 0.10 × Context** (paper Eq. 1)
+
+- **NLP**: one item per planned question (job, JD and resume questions alike). A follow-up better than the original
+  answer recovers half of the gap (`FOLLOW_UP_RECOVERY`); a weaker one never lowers the item, so everyone is scored on
+  the same number of items. Unanswered questions count 0. Speech measures (clarity, pace, fillers) are shown alongside.
+- **Emotion**: the paper's indicators (confidence, engagement, stability = 100 − nervousness), averaged over answers
+  whose facial analysis is reliable; low-reliability answers are left out.
+- **Context**: consistency (one Gemini check after the interview for contradictions between answers and with the
+  resume; every finding must quote the answers) and adjustability during follow-ups (50 = same level when probed,
+  higher = improved).
+- A component that can't be assessed has its weight shared out over the others instead of counting as 0, and the
+  scorecard says so. It is **provisional** until all answers are scored and the checks have run, and is recomputed
+  automatically whenever an answer is re-scored or re-analysed.
+- An AI recommendation (strong ≥ 75, worth considering ≥ 60) is shown; HR always decides. Integrity flags are shown but
+  not scored.
+
 ## Roles and accounts
 
 | Role | How the account is created | Can do |

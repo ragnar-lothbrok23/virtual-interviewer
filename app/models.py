@@ -416,6 +416,7 @@ class Interview(db.Model):
     slot = db.relationship("InterviewSlot", back_populates="interviews")
     answers = db.relationship("InterviewAnswer", back_populates="interview", cascade="all, delete-orphan",
                               order_by="InterviewAnswer.position")
+    scorecard = db.relationship("Scorecard", back_populates="interview", uselist=False, cascade="all, delete-orphan")
     events = db.relationship("InterviewEvent", back_populates="interview", cascade="all, delete-orphan",
                              order_by="[InterviewEvent.created_at, InterviewEvent.id]", lazy="dynamic")
 
@@ -590,6 +591,47 @@ class InterviewAnswer(db.Model):
     @property
     def is_submitted(self):
         return self.submitted_at is not None
+
+
+class Scorecard(db.Model):
+    """The interview's final evaluation (paper §3.4): FinalScore = 0.75 NLP + 0.15 Emotion + 0.10 Context.
+
+    Recomputed whenever an answer is (re-)scored or (re-)analysed, so it always reflects the current data; `details`
+    holds every component and the reasons behind it (see services/scorecard.py)."""
+
+    STATUS_PENDING, STATUS_PROVISIONAL, STATUS_COMPLETE = "pending", "provisional", "complete"
+    STATUS_LABELS = {STATUS_PENDING: "Interview not finished", STATUS_PROVISIONAL: "Provisional",
+                     STATUS_COMPLETE: "Complete"}
+    CHECK_PENDING, CHECK_DONE, CHECK_FAILED, CHECK_SKIPPED = "pending", "done", "failed", "skipped"
+
+    id = db.Column(db.Integer, primary_key=True)
+    interview_id = db.Column(db.Integer, db.ForeignKey("interview.id", ondelete="CASCADE"), nullable=False,
+                             unique=True)
+    status = db.Column(db.String(12), nullable=False, default=STATUS_PENDING)
+    final_score = db.Column(db.Float)
+    nlp_score = db.Column(db.Float)
+    emotion_score = db.Column(db.Float)
+    context_score = db.Column(db.Float)
+    recommendation = db.Column(db.String(12))
+    details = db.Column(db.JSON)  # items, speech, emotion indicators, context parts, weights used, notes
+    computed_at = db.Column(db.DateTime(timezone=True))
+    # Consistency check (one AI call per interview, after it ends)
+    consistency_status = db.Column(db.String(10))
+    consistency_error = db.Column(db.Text)
+    consistency = db.Column(db.JSON)  # {score 0-10, summary, contradictions, resume_mismatches, confidence}
+    consistency_requested_at = db.Column(db.DateTime(timezone=True))
+    consistency_at = db.Column(db.DateTime(timezone=True))
+
+    interview = db.relationship("Interview", back_populates="scorecard")
+
+    @property
+    def status_label(self):
+        return self.STATUS_LABELS.get(self.status, self.status)
+
+    @property
+    def consistency_running(self):
+        return (self.consistency_status == self.CHECK_PENDING and self.consistency_requested_at is not None
+                and utcnow() - as_utc(self.consistency_requested_at) < timedelta(minutes=15))
 
 
 class InterviewEvent(db.Model):

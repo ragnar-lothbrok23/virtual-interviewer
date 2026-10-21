@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import analysis_cell, status_badge %}
+{% from "_macros.html" import analysis_cell, score_color, status_badge %}
 {% block title %}{{ job.title }} · Applicants{% endblock %}
 {% block content %}
 <a href="{{ url_for('hr.jobs') }}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> All jobs</a>
@@ -30,7 +30,7 @@
   <div data-live-busy="{{ 1 if applicants|selectattr('is_analysing')|list else 0 }}" hidden></div>
   <div class="table-responsive" data-live="applicants">
     <table class="table table-hover mb-0 align-middle">
-      <thead class="table-light"><tr><th>#</th><th>Candidate</th><th style="width: 22%">Match score</th><th>Skills</th><th>Experience</th><th>Status</th><th>Interview</th><th></th></tr></thead>
+      <thead class="table-light"><tr><th>#</th><th>Candidate</th><th style="width: 22%">Match score</th><th>Skills</th><th>Experience</th><th>Status</th><th>Interview</th><th>Final score</th><th></th></tr></thead>
       <tbody>
         {% for a in applicants %}
         <tr class="{{ 'text-muted' if a.is_withdrawn }}">
@@ -50,6 +50,7 @@
           <td>{{ status_badge(a) }}{% if a.status_source == 'hr' %} <i class="bi bi-person-check small text-muted" title="Decided by HR"></i>{% endif %}</td>
           <td class="small">{% if a.interview %}<span class="badge text-bg-{{ a.interview.status_color }}">{{ a.interview.status_label }}</span>
               {% if a.interview.is_active %}<div class="text-muted">{{ a.interview.starts_at|localtime('%d %b %I:%M %p') }}</div>{% endif %}{% else %}–{% endif %}</td>
+          <td>{% set sc = a.interview.scorecard if a.interview else none %}{% if sc and sc.final_score is not none %}<a href="{{ url_for('hr.scorecard', interview_id=a.interview.id) }}" class="fw-semibold text-decoration-none text-{{ score_color(sc.final_score) }}" title="{{ sc.status_label }}">{{ sc.final_score|round|int }}</a>{% if sc.status != 'complete' %}<span class="small text-muted" title="Provisional"> *</span>{% endif %}{% else %}<span class="text-muted">–</span>{% endif %}</td>
           <td class="text-end"><a href="{{ url_for('hr.application', app_id=a.id) }}" class="btn btn-sm btn-outline-primary">Review</a></td>
         </tr>
         {% endfor %}

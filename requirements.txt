@@ -26,6 +26,9 @@ google-genai==2.31.0
 # Interview recordings: the audio track is copied out for fast transcription
 av==18.1.0
 
+# Scorecard PDFs
+reportlab==5.0.1
+
 # Resume text extraction
 pypdf==6.21.1
 python-docx==1.2.0

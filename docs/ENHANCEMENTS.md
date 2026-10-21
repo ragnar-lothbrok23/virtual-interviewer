@@ -117,7 +117,22 @@ weak answers get the paper's similarity-based follow-up.
 Real Gemini check: 6/6 questions across two real resumes were specific (named the internship, project or skill)
 and passed validation.
 
-## Planned for Phase 9 (scorecard) — agreed 20 Oct 2026
+## Phase 9 (scorecard) — implemented 21 Oct 2026
+
+The agreed rule below is implemented in `services/scorecard.py` (`FOLLOW_UP_RECOVERY = 0.5`: item =
+original + 0.5 × (follow-up − original) when the follow-up is better, else the original). Other Phase 9 decisions:
+
+| Item | Base paper | Implementation |
+|---|---|---|
+| FinalScore = 0.75 NLP + 0.15 Emotion + 0.10 Context | Specified (Eq. 1) | As specified (`FINAL_SCORE_WEIGHTS`) |
+| Emotion indicators: stability, engagement, confidence | Specified (§3.4) | confidence = composure, engagement = attentiveness, stability = 100 − nervousness; per-answer emotion score = a third each (was 50/50 composure/attentiveness) |
+| Contextual metrics: consistency, adjustability during follow-ups | Specified (§3.4), method not | Consistency: one Gemini check per interview (quotes verified against the transcripts; resume conflicts kept separately); adjustability = 50 + (follow-up − original), clamped 0-100; context = their average |
+| Missing component | Not specified | Its weight is shared out over the others (never scored as 0); noted on the scorecard |
+| Low-reliability facial analysis | Not specified | Left out of the emotion component |
+| Recommendation bands (strong ≥ 75, consider ≥ 60) | “recommendation to recruiters”, no bands | Implementation decision (`RECOMMENDATION_BANDS`); HR decides |
+| Integrity flags | Not in the formula | Shown on the scorecard, not scored |
+
+### Original plan (kept for the record)
 
 ### A question and its follow-up count as one item
 

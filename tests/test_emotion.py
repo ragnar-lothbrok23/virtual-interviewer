@@ -37,7 +37,8 @@ def test_composed_attentive_answer(app):
     s = agg(app, "nnnhhnnnhn")
     assert s["status"] == "done" and s["dominant"] == "neutral"
     assert s["attentiveness"] == 100 and s["confidence"] > 85 and s["nervousness"] < 10
-    assert s["score"] == pytest.approx(0.5 * s["confidence"] + 0.5 * s["attentiveness"], abs=0.1)
+    assert s["stability"] == pytest.approx(100 - s["nervousness"], abs=0.1)
+    assert s["score"] == pytest.approx((s["confidence"] + s["attentiveness"] + s["stability"]) / 3, abs=0.1)
     assert sum(s["distribution"].values()) == pytest.approx(100, abs=0.5)
     assert s["frames"] == s["face_frames"] == s["facing_frames"] == 10
 
@@ -317,7 +318,8 @@ def test_answers_are_analysed_and_hr_sees_the_results(app, room, ai, fake_emotio
     answer_question(room, 0)
     a = answer_row(app, 0)
     assert a.emotion_status == "done" and fake_emotion.calls == 1
-    assert a.emotion_score == pytest.approx(0.5 * a.emotion_confidence + 0.5 * a.emotion_attentiveness, abs=0.1)
+    assert a.emotion_score == pytest.approx(
+        (a.emotion_confidence + a.emotion_attentiveness + (100 - a.emotion_nervousness)) / 3, abs=0.1)
     assert a.emotion["dominant"] == "neutral" and a.emotion_at is not None
     application_id = get(app, Interview, room.id).application_id
     page = login("hr@test.com").get(f"/hr/applications/{application_id}").get_data(as_text=True)

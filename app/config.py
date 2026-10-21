@@ -87,10 +87,23 @@ class BaseConfig:
     EMOTION_FACING_YAW = 0.35         # [impl] nose offset (eye distances) still counted as facing the camera
     EMOTION_MIN_FRAMES = 4            # [impl] fewer sampled frames -> no emotion score
     EMOTION_MIN_FACE_RATIO = 0.5      # [impl] face visible in fewer frames -> "insufficient", not a low score
-    EMOTION_WEIGHTS = {"confidence": 0.5, "attentiveness": 0.5}  # [impl] per-answer emotion score
+    # Per-answer emotion score from the paper's three emotion indicators (§3.4: stability, engagement, confidence):
+    # confidence = composure, engagement = attentiveness, stability = 100 - nervousness. [paper] indicators, [impl] weights
+    EMOTION_WEIGHTS = {"confidence": 1 / 3, "attentiveness": 1 / 3, "stability": 1 / 3}
     EMOTION_UNSTABLE_FLIP_RATE = 0.5  # [impl] top emotion changing this often between frames -> "low reliability"
     EMOTION_MULTI_FACE_MIN_FRAMES = 2  # [impl] integrity flag: another person in view
     EMOTION_ABSENCE_FLAG_SECONDS = 5  # [impl] integrity flag: face out of view this long
+
+    # Scorecard (paper §3.4): FinalScore = 0.75 NLP + 0.15 Emotion + 0.10 Context  [paper Eq. 1]
+    FINAL_SCORE_WEIGHTS = {"nlp": 0.75, "emotion": 0.15, "context": 0.10}
+    # [impl] a follow-up better than its original question recovers this share of the gap (never lowers the item)
+    FOLLOW_UP_RECOVERY = 0.5
+    # [impl] context = consistency (one AI check per interview) and adjustability during follow-ups (paper §3.4)
+    CONTEXT_WEIGHTS = {"consistency": 0.5, "adjustability": 0.5}
+    CONSISTENCY_CHECK_ENABLED = os.getenv("CONSISTENCY_CHECK_ENABLED", "1") == "1"
+    # [impl] AI recommendation shown to HR (HR always decides): final score at or above each band's minimum
+    RECOMMENDATION_BANDS = [(75, "strong", "Strong candidate"), (60, "consider", "Worth considering"),
+                            (0, "weak", "Not recommended")]
 
     # JD-based technical questions: generated once per job from its description and required skills, so every
     # candidate for the job gets the same ones (HR can review and edit them). [impl] realises the paper's "dynamic and

@@ -35,6 +35,9 @@ def run_transcription(answer_id, retries_left=0):
         answer.score_status, answer.score_error = InterviewAnswer.SCORE_FAILED, "No transcript to score"
         db.session.commit()
         scoring.decide_follow_up(answer)  # releases a waiting interview (no follow-up without a transcript)
+        from .scorecard import refresh_for_answer
+
+        refresh_for_answer(answer.id)
         return answer.transcript_status
     answer.transcript = result["transcript"]
     answer.speech_detected = result["speech_detected"]

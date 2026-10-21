@@ -26,6 +26,16 @@
       <div class="small mb-2"><i class="bi bi-calendar-event me-1"></i>{{ iv.starts_at|localtime }} · {{ iv.duration_minutes }} min
         {% if iv.reschedule_count %}· rescheduled {{ iv.reschedule_count }}×{% endif %}</div>
       {% if iv.status == 'cancelled' %}<div class="small text-muted">Cancelled by {{ iv.cancelled_by }}{% if iv.cancel_reason %}: {{ iv.cancel_reason }}{% endif %}</div>{% endif %}
+      {% if iv.status == 'completed' %}
+      {% set sc = iv.scorecard %}
+      <div class="d-flex align-items-center gap-3 mt-2 pt-2 border-top" id="scorecard-summary">
+        {% if sc and sc.final_score is not none %}
+        <div><div class="small text-muted">Final score{% if sc.status != 'complete' %} (provisional){% endif %}</div>
+          <div class="fs-3 fw-bold text-{{ score_color(sc.final_score) }}">{{ sc.final_score|round|int }}<span class="fs-6 text-muted">/100</span></div></div>
+        {% else %}<div class="small text-muted">Final score not available yet.</div>{% endif %}
+        <a class="btn btn-sm btn-primary ms-auto" href="{{ url_for('hr.scorecard', interview_id=iv.id) }}"><i class="bi bi-clipboard-data me-1"></i>Scorecard</a>
+      </div>
+      {% endif %}
       {% if iv.status == 'scheduled' %}
       <form method="post" action="{{ url_for('hr.cancel_interview', interview_id=iv.id) }}" class="mt-2">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
