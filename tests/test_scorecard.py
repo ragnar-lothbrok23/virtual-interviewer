@@ -214,6 +214,21 @@ def test_consistency_failure_does_not_block_the_scorecard(app, room, ai):
     assert sc.context_score is None and "context" not in sc.details["weights"]
 
 
+def test_low_certainty_consistency_is_not_counted(app, room, ai):
+    ai.consistency = {"consistency": 10, "summary": "Too little content.", "confidence": "low", "contradictions": [],
+                      "resume_mismatches": []}
+    run_interview(room, ai)
+    sc = card(app, room)
+    assert sc.details["context_parts"]["consistency"] is None and sc.context_score is None
+    assert any("too little spoken content" in n for n in sc.details["notes"])
+
+
+def test_silent_answers_do_not_count_for_emotion(app, room, ai, fake_emotion):
+    run_interview(room, ai, {p: "" for p in range(3, 7)})  # four silent answers
+    counts = card(app, room).details["emotion_info"]["counts"]
+    assert counts["used"] == 3
+
+
 def test_consistency_skipped_with_too_few_spoken_answers(app, room, ai):
     run_interview(room, ai, {p: "" for p in range(1, 7)})  # only the first answer has speech
     sc = card(app, room)
@@ -245,6 +260,7 @@ def test_consistency_prompt_is_guarded(app, monkeypatch):
     assert "untrusted data" in prompt and prompt.count("</answer>") == 1 and prompt.count("</resume_profile>") == 1
     assert "Do not judge accent" in prompt and "follow-up answer that adds detail" in prompt
     assert "never use their name or gendered pronouns" in prompt
+    assert "a wrong, weak or misinformed answer is not an inconsistency" in prompt
 
 
 # ---------- HR pages ----------

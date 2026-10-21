@@ -92,7 +92,8 @@ def adjustability(items):
 # ---------- emotion ----------
 
 def emotion_component(interview):
-    submitted = [a for a in interview.answers if a.is_submitted]
+    # Only answers where the candidate spoke: a silent answer's facial expressions say nothing about the interview
+    submitted = [a for a in interview.answers if a.is_submitted and a.speech_detected is not False]
     usable = [a for a in submitted if a.emotion_status == InterviewAnswer.EMOTION_DONE and a.emotion
               and a.emotion.get("reliability") != "low" and _num(a.emotion_score)]
     counts = {"used": len(usable),
@@ -131,8 +132,12 @@ def compute(interview, sc=None):
     emotion, emotion_info = emotion_component(interview)
 
     consistency = None
+    consistency_low = False
     if sc is not None and sc.consistency_status == Scorecard.CHECK_DONE and sc.consistency:
-        consistency = round(sc.consistency["score"] * 10, 1)
+        if sc.consistency.get("confidence") == "low":  # too little content to judge: not evidence of consistency
+            consistency_low = True
+        else:
+            consistency = round(sc.consistency["score"] * 10, 1)
     adjust, follow_ups = adjustability(items)
     cw = cfg["CONTEXT_WEIGHTS"]
     parts = {k: v for k, v in (("consistency", consistency), ("adjustability", adjust)) if v is not None}
@@ -153,8 +158,10 @@ def compute(interview, sc=None):
     elif emotion_info["counts"]["low_reliability"]:
         notes.append(f"{emotion_info['counts']['low_reliability']} answer(s) with low-reliability facial analysis "
                      "were left out of the emotion score.")
+    if consistency_low:
+        notes.append("Consistency not counted: the check found too little spoken content to judge.")
     if context is None:
-        notes.append("Context not assessed yet (consistency check not available and no follow-ups); its weight was "
+        notes.append("Context not assessed (consistency not available and no follow-ups); its weight was "
                      "shared out.")
     elif adjust is None:
         notes.append("No follow-up questions: context is based on consistency only.")
