@@ -113,7 +113,14 @@ def emotion_component(interview):
                   "engagement": _mean(a.emotion_attentiveness for a in usable),
                   "stability": _mean(stability(a) for a in usable)}
     models = sorted({a.emotion.get("model", "DeepFace") for a in usable})
-    return _mean(a.emotion_score for a in usable), {"counts": counts, "indicators": indicators, "models": models}
+    # Voice (supporting signal): answers whose emotion reading includes the candidate's voice
+    with_voice = [a for a in usable if (a.emotion.get("voice") or {}).get("status") == "done" and "face" in a.emotion]
+    voice = {"answers": len(with_voice),
+             "weight": with_voice[0].emotion.get("voice_weight") if with_voice else None,
+             "nervousness": _mean(a.emotion["voice"]["nervousness"] for a in with_voice) if with_voice else None,
+             "models": sorted({a.emotion["voice"].get("model", "") for a in with_voice})}
+    return _mean(a.emotion_score for a in usable), {"counts": counts, "indicators": indicators, "models": models,
+                                                     "voice": voice}
 
 
 # ---------- the scorecard ----------

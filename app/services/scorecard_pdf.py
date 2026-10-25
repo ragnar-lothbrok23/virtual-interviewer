@@ -103,6 +103,11 @@ def build(interview, sc, recommendation_label):
         story.append(P(f"Facial expressions: {E(', '.join(ei['models']))}; {ei['counts']['used']} answer(s) used"
                        + (f", {ei['counts']['low_reliability']} left out for low reliability"
                           if ei["counts"].get("low_reliability") else "") + ".", small))
+    voice = ei.get("voice") or {}
+    if voice.get("answers"):
+        story.append(P(f"Voice: {E(', '.join(voice['models']))} included at {voice['weight'] * 100:.0f}% in "
+                       f"{voice['answers']} of {ei['counts']['used']} answer(s); vocal nervousness "
+                       f"{_fmt(voice.get('nervousness'))}.", small))
 
     c = sc.consistency if sc.consistency_status == "done" else None
     if c:

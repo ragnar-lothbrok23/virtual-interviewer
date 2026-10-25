@@ -4,6 +4,7 @@ Transcription only needs the sound. Sending Gemini the audio track instead of th
 more consistent (measured on real answers: a 57 s answer took 7-12 s instead of 24-67 s), which keeps the follow-up
 decision inside its time limit. The track is copied as-is (no re-encoding, a few milliseconds); the full video is still
 stored for HR and for emotion analysis. If anything goes wrong the caller falls back to the full recording.
+Voice-emotion analysis decodes the sound to 16 kHz mono samples instead (decode_audio).
 """
 import io
 
@@ -45,3 +46,31 @@ def extract_audio(media):
     if not packets or len(data) < 64:
         return None
     return data, target[1]
+
+
+def decode_audio(media, rate=16000, max_seconds=None):
+    """The recording's sound as mono float32 samples at `rate` Hz (for voice-emotion analysis), or None if it has no
+    audio track. Raises ValueError if the audio can't be decoded."""
+    import av
+    import numpy as np
+
+    chunks, total = [], 0
+    limit = int(max_seconds * rate) if max_seconds else None
+    try:
+        with av.open(io.BytesIO(media)) as source:
+            if not source.streams.audio:
+                return None
+            resampler = av.AudioResampler(format="flt", layout="mono", rate=rate)
+            for frame in source.decode(source.streams.audio[0]):
+                for out in resampler.resample(frame):
+                    chunks.append(out.to_ndarray().reshape(-1))
+                    total += chunks[-1].size
+                if limit and total >= limit:
+                    break
+            else:
+                for out in resampler.resample(None):  # flush what the resampler still holds
+                    chunks.append(out.to_ndarray().reshape(-1))
+    except Exception as e:
+        raise ValueError(f"The recording's audio couldn't be decoded: {e}") from e
+    samples = np.concatenate(chunks).astype(np.float32) if chunks else np.zeros(0, dtype=np.float32)
+    return samples[:limit] if limit else samples

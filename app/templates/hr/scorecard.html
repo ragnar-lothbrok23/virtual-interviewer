@@ -89,6 +89,11 @@
         <dt class="col-7 fw-normal text-muted">Stability (calm)</dt><dd class="col-5 text-end">{{ value(ei.indicators.stability) }}</dd>
       </dl>
       <div class="small text-muted">{{ ei.counts.used }} answer(s) used{% if ei.counts.low_reliability %}, {{ ei.counts.low_reliability }} left out (low reliability){% endif %}{% if ei.counts.insufficient %}, {{ ei.counts.insufficient }} not assessed (face not visible){% endif %}. Model: {{ ei.models|join(', ') }}.</div>
+      {% if ei.voice and ei.voice.answers %}
+      <div class="small text-muted mt-1"><i class="bi bi-mic me-1"></i>Voice ({{ ei.voice.models|join(', ') }}) included at {{ (ei.voice.weight * 100)|round|int }}% in {{ ei.voice.answers }} of {{ ei.counts.used }} answer(s); vocal nervousness {{ value(ei.voice.nervousness) }}.</div>
+      {% elif ei.voice %}
+      <div class="small text-muted mt-1"><i class="bi bi-mic me-1"></i>Voice not included (no usable voice reading): face only.</div>
+      {% endif %}
       {% else %}
       <div class="small text-muted">Not assessed: no answer had reliable facial analysis{% if ei.counts.pending %} yet ({{ ei.counts.pending }} still being analysed){% endif %}.</div>
       {% endif %}

@@ -1,4 +1,4 @@
-"""Facial emotion analysis of recorded answers (paper Section 3.2).
+"""Facial and vocal emotion analysis of recorded answers (paper Section 3.2).
 
 Per answer, in a separate background worker (so it never slows down transcription or follow-up decisions):
 
@@ -13,6 +13,11 @@ Per answer, in a separate background worker (so it never slows down transcriptio
    0.26; see services/emotion_models.py). DeepFace remains selectable as the paper baseline (EMOTION_MODEL=deepface).
 4. Temporal smoothing (exponential moving average across frames) and whole-answer averages remove frame-to-frame
    flicker; a reliability label tells HR when the readings were unstable.
+5. Voice (the paper's audio modality): emotion2vec+ reads the emotion in the answer's sound, in 15-second pieces
+   (VOICE_CHUNK_SECONDS) that contain speech. Its reading joins the face's expressions with a small weight
+   (VOICE_EMOTION_WEIGHT, 10%): in the labelled test the voice models recognised little emotion in natural speech
+   and more voice made the combined reading worse. Without usable speech, or if the voice model isn't available, the
+   reading is the face's alone; the face-only numbers are kept in the summary ("face") for comparison.
 
 Signals the paper names (confidence, nervousness, attentiveness; 0-100):
 - confidence   = share of composed expressions (neutral + happy), shown to HR as "composure"
@@ -172,20 +177,120 @@ def aggregate(frames, cfg):
         return summary
 
     mean = {e: float(np.mean([s[e] for s in smoothed])) for e in EMOTIONS}
+    reliability = ("low" if flip_rate > cfg["EMOTION_UNSTABLE_FLIP_RATE"] or face_ratio < 0.8 else
+                   "medium" if flip_rate > cfg["EMOTION_UNSTABLE_FLIP_RATE"] / 2 else "high")
+    summary.update(status="done", reliability=reliability, **signals(mean, round(100 * len(facing) / n, 1), cfg))
+    return summary
+
+
+def signals(mean, attentiveness, cfg):
+    """The paper's emotion indicators and the emotion score from mean expression probabilities {emotion: 0-1}."""
     confidence = round(100 * sum(mean[e] for e in COMPOSED), 1)
     nervousness = round(100 * sum(mean[e] for e in NERVOUS), 1)
-    attentiveness = round(100 * len(facing) / n, 1)
     stability = round(100 - nervousness, 1)  # emotional stability: calm rather than fearful or sad
     w = cfg["EMOTION_WEIGHTS"]
     score = round(w["confidence"] * confidence + w["attentiveness"] * attentiveness + w["stability"] * stability, 1)
     for value in (confidence, nervousness, attentiveness, stability, score):
         if not math.isfinite(value):
             raise EmotionError("The emotion signals couldn't be computed.")
-    reliability = ("low" if flip_rate > cfg["EMOTION_UNSTABLE_FLIP_RATE"] or face_ratio < 0.8 else
-                   "medium" if flip_rate > cfg["EMOTION_UNSTABLE_FLIP_RATE"] / 2 else "high")
-    summary.update(status="done", reliability=reliability, distribution={e: round(mean[e] * 100, 1) for e in EMOTIONS},
-                   dominant=max(mean, key=mean.get), confidence=confidence, nervousness=nervousness,
-                   attentiveness=attentiveness, stability=stability, score=score)
+    return {"distribution": {e: round(mean[e] * 100, 1) for e in EMOTIONS}, "dominant": max(mean, key=mean.get),
+            "confidence": confidence, "nervousness": nervousness, "attentiveness": attentiveness,
+            "stability": stability, "score": score}
+
+
+# ---------- voice ----------
+
+def _window_levels(samples, rate):
+    window = int(0.03 * rate)
+    if samples.size < window:
+        return np.zeros(0)
+    frames = samples[:samples.size // window * window].reshape(-1, window)
+    return np.sqrt(np.mean(frames.astype(np.float64) ** 2, axis=1))
+
+
+def noise_floor(samples, rate, cfg):
+    """Background noise level: the quietest moments of the answer, capped (someone talking without pauses would
+    otherwise raise the "noise" to the level of their own voice)."""
+    levels = _window_levels(samples, rate)
+    return min(float(np.percentile(levels, 10)), cfg["VOICE_NOISE_FLOOR_MAX"]) if levels.size else 0.0
+
+
+def speech_seconds(samples, rate, cfg, floor=None):
+    """Seconds of speech in a piece of audio: 30 ms windows clearly louder than the background noise."""
+    levels = _window_levels(samples, rate)
+    if not levels.size:
+        return 0.0
+    floor = noise_floor(samples, rate, cfg) if floor is None else floor
+    return float(np.sum(levels > max(cfg["VOICE_SPEECH_RMS"], 3 * floor))) * 0.03
+
+
+def voice_reading(samples, classifier, cfg, rate=16000):
+    """The voice's emotion over an answer: the model reads each VOICE_CHUNK_SECONDS piece that has speech, and the
+    pieces are averaged by how much speech they contain."""
+    floor = noise_floor(samples, rate, cfg)  # measured over the whole answer, used for every piece
+    total_speech = speech_seconds(samples, rate, cfg, floor)
+    if total_speech < cfg["VOICE_MIN_SPEECH_SECONDS"]:
+        return {"status": "no_speech", "speech_seconds": round(total_speech, 1)}
+    size = int(cfg["VOICE_CHUNK_SECONDS"] * rate)
+    starts = list(range(0, samples.size, size))
+    if len(starts) > 1 and samples.size - starts[-1] < size // 3:  # a short tail joins the piece before it
+        starts.pop()
+    readings = []
+    for i, start in enumerate(starts):
+        piece = samples[start:starts[i + 1] if i + 1 < len(starts) else samples.size]
+        weight = speech_seconds(piece, rate, cfg, floor)
+        if weight < 0.5:
+            continue
+        result = classifier.predict(piece)
+        if result is not None:
+            readings.append((weight, *result))
+    if not readings:
+        return {"status": "failed", "reason": "the voice model gave no usable reading"}
+    total = sum(w for w, _, _ in readings)
+    mean = {e: sum(w * p[e] for w, p, _ in readings) / total for e in EMOTIONS}
+    unclear = sum(w * u for w, _, u in readings) / total
+    result = {"speech_seconds": round(total_speech, 1), "unclear": round(unclear * 100, 1),
+              "distribution": {e: round(v * 100, 1) for e, v in mean.items()}, "dominant": max(mean, key=mean.get),
+              "nervousness": round(100 * sum(mean[e] for e in NERVOUS), 1), "model": classifier.label}
+    if unclear > cfg["VOICE_MAX_UNCLEAR"]:
+        result.update(status="unclear", reason="the voice model couldn't tell an emotion")
+    else:
+        result["status"] = "done"
+    return result
+
+
+def analyse_voice(media, cfg):
+    """Voice reading of one recording; never raises (the face analysis goes ahead without it)."""
+    from .emotion_models import ModelError, load_voice
+    from .media import decode_audio
+
+    if not cfg["VOICE_EMOTION_ENABLED"]:
+        return None
+    try:
+        classifier = load_voice(cfg)
+    except (ModelError, ImportError) as e:
+        current_app.logger.warning("Voice emotion is unavailable: %s", e)
+        return {"status": "unavailable", "reason": str(e)}
+    try:
+        samples = decode_audio(media, 16000, cfg["VOICE_MAX_SECONDS"])
+        if samples is None:
+            return {"status": "no_speech", "reason": "the recording has no sound track", "speech_seconds": 0.0}
+        return voice_reading(samples, classifier, cfg)
+    except Exception as e:  # noqa: BLE001 - voice is a supporting signal: record the problem, keep the face reading
+        current_app.logger.error("Voice emotion analysis failed: %s", e)
+        return {"status": "failed", "reason": str(e)}
+
+
+def fuse(summary, voice, cfg):
+    """Add the voice's reading to the face's: expression probabilities are combined (VOICE_EMOTION_WEIGHT for the
+    voice) and the indicators recomputed. The face-only numbers stay under "face"."""
+    summary["voice"] = voice
+    if summary.get("status") != "done" or not voice or voice.get("status") != "done":
+        return summary
+    w = cfg["VOICE_EMOTION_WEIGHT"]
+    face = {k: summary[k] for k in ("distribution", "dominant", "confidence", "nervousness", "stability", "score")}
+    mean = {e: (1 - w) * face["distribution"][e] / 100 + w * voice["distribution"][e] / 100 for e in EMOTIONS}
+    summary.update(signals(mean, summary["attentiveness"], cfg), face=face, voice_weight=w)
     return summary
 
 
@@ -196,8 +301,9 @@ def _downsample(points, limit):
     return [points[int(i * step)] for i in range(limit)]
 
 
-def analyse_recording(media):
-    """Run the full pipeline on one recording."""
+def analyse_recording(media, speech=None):
+    """Run the full pipeline on one recording. `speech` is the transcription's verdict when known: if it found no
+    speech, the voice isn't read (loud noise without words would otherwise be read as an emotion)."""
     cfg = current_app.config
     frames = sample_frames(media, cfg["EMOTION_SAMPLE_FPS"], cfg["EMOTION_MAX_FRAMES"])
     if not frames:
@@ -205,7 +311,11 @@ def analyse_recording(media):
     models = _load_models()
     summary = aggregate([(t, analyse_frame(image, models, cfg)) for t, image in frames], cfg)
     summary["model"] = models["classifier"].label  # which model produced these numbers
-    return summary
+    if speech is False:
+        voice = {"status": "no_speech", "reason": "no speech in the transcript", "speech_seconds": 0.0}
+    else:
+        voice = analyse_voice(media, cfg)
+    return fuse(summary, voice, cfg)
 
 
 # ---------- task body ----------
@@ -219,7 +329,7 @@ def run_emotion(answer_id):
     if answer is None or not answer.media_path:
         return None
     try:
-        summary = analyse_recording(storage.read_resume(answer.media_path))
+        summary = analyse_recording(storage.read_resume(answer.media_path), speech=answer.speech_detected)
     except Exception as e:  # best-effort: any failure is recorded on the answer, never raised
         db.session.rollback()
         answer = db.session.get(InterviewAnswer, answer_id)

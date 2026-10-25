@@ -252,12 +252,31 @@
               {% if e.distribution.get(name, 0) >= 1 %}<div class="progress-bar" style="width: {{ e.distribution[name] }}%; background-color: {{ color }}" title="{{ name }} {{ e.distribution[name]|round|int }}%"></div>{% endif %}
             {% endfor %}
           </div>
+          {% set v = e.voice %}
+          {% if v %}
+          <div class="mt-1 voice-line">
+            <span class="text-muted me-1" title="{{ v.model or 'Voice emotion model' }}"><i class="bi bi-mic me-1"></i>Voice:</span>
+            {% if ans.speech_detected is sameas false %}
+              <span class="text-muted">not read (no speech in the transcript)</span>
+            {% elif v.status == 'done' %}
+              <span class="me-2">mostly {{ v.dominant }}</span>
+              <span class="me-2">Nervousness {{ v.nervousness|round|int }}</span>
+              {% if e.face %}<span class="text-muted" title="Expression shares above combine face {{ ((1 - e.voice_weight) * 100)|round|int }}% and voice {{ (e.voice_weight * 100)|round|int }}%. Face alone: emotion {{ e.face.score|round|int }}, nervousness {{ e.face.nervousness|round|int }}.">included at {{ (e.voice_weight * 100)|round|int }}% (face alone: emotion {{ e.face.score|round|int }})</span>{% endif %}
+            {% elif v.status == 'no_speech' %}
+              <span class="text-muted">not read ({{ v.reason or 'too little speech' }})</span>
+            {% elif v.status == 'unclear' %}
+              <span class="text-muted">not used: {{ v.reason }}</span>
+            {% else %}
+              <span class="text-muted" title="{{ v.reason }}">not available{% if v.status == 'failed' %} (analysis failed){% endif %}; face only</span>
+            {% endif %}
+          </div>
+          {% endif %}
         {% elif ans.emotion_status == 'insufficient' %}
           <span class="text-muted">not assessed: {{ ans.emotion_error }} (no emotion score, not a low one)</span>
         {% elif ans.emotion_status == 'failed' %}
           <span class="text-danger">analysis failed: {{ ans.emotion_error }}</span>
         {% elif ans.is_emotion_running %}
-          <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Analysing facial expressions…</span>
+          <span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Analysing facial expressions and voice…</span>
         {% else %}
           <span class="text-muted">not analysed yet (is the emotion worker running?)</span>
         {% endif %}

@@ -232,8 +232,8 @@ def register_cli(app):
 
     @app.cli.command("download-emotion-models")
     def download_emotion_models():
-        """Download and verify the facial analysis model files (run once when deploying)."""
-        from .services.emotion_models import ModelError, model_path
+        """Download and verify the facial analysis model files and check the voice model (run once when deploying)."""
+        from .services.emotion_models import ModelError, VoiceEmotionClassifier, model_path
 
         names = ["face_detection_yunet_2023mar", app.config["HSEMOTION_MODEL"]]
         for name in names:
@@ -242,6 +242,13 @@ def register_cli(app):
             except ModelError as e:
                 raise click.ClickException(str(e))
             click.echo(f"{name}: {path} (checksum OK)")
+        if app.config["VOICE_EMOTION_ENABLED"]:
+            # The voice model can't be downloaded ready-made: it is converted once with export_voice_model.py
+            try:
+                VoiceEmotionClassifier(app.config["EMOTION_MODEL_DIR"], app.config["VOICE_EMOTION_MODEL"])
+            except ModelError as e:
+                raise click.ClickException(f"{e}. Or set VOICE_EMOTION_ENABLED=0 to analyse the face only.")
+            click.echo(f"{app.config['VOICE_EMOTION_MODEL']}: checksum OK")
 
     @app.cli.command("queue-check")
     @click.option("--timeout", default=15, help="Seconds to wait for the worker.")

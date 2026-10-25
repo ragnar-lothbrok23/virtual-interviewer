@@ -17,7 +17,7 @@ from app import create_app
 from app.config import TestingConfig
 from app.extensions import db, limiter
 from app.models import User
-from app.services import emotion, gemini
+from app.services import emotion, emotion_models, gemini
 
 
 def pytest_addoption(parser):
@@ -107,6 +107,11 @@ def _no_real_gemini(monkeypatch, request):
             raise emotion.EmotionError("DeepFace is disabled in tests")
 
         monkeypatch.setattr(emotion, "_load_models", no_deepface)
+
+        def no_voice_model(cfg):  # tests use FakeVoice or fake_emotion.voice instead
+            raise emotion_models.ModelError("The voice model is disabled in tests")
+
+        monkeypatch.setattr(emotion_models, "load_voice", no_voice_model)
 
 
 class FakeInterviewAI:
@@ -255,15 +260,20 @@ class FakeEmotion:
         self.pattern = "nnnhhnnnhn"
         self.yaw = 0.05
         self.error = None
+        self.voice = None  # a voice reading to combine with the face (None: voice not analysed)
         self.calls = 0
+        self.speech = []  # the `speech` argument of each call
 
-    def analyse_recording(self, media):
+    def analyse_recording(self, media, speech=None):
         from flask import current_app
 
         self.calls += 1
+        self.speech.append(speech)
         if self.error:
             raise self.error
-        return emotion.aggregate(emotion_frames(self.pattern, yaw=self.yaw), current_app.config)
+        summary = emotion.aggregate(emotion_frames(self.pattern, yaw=self.yaw), current_app.config)
+        voice = self.voice if speech is not False else {"status": "no_speech", "reason": "no speech in the transcript"}
+        return emotion.fuse(summary, voice, current_app.config)
 
 
 @pytest.fixture

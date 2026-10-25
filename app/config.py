@@ -93,6 +93,19 @@ class BaseConfig:
     EMOTION_UNSTABLE_FLIP_RATE = 0.5  # [impl] top emotion changing this often between frames -> "low reliability"
     EMOTION_MULTI_FACE_MIN_FRAMES = 2  # [impl] integrity flag: another person in view
     EMOTION_ABSENCE_FLAG_SECONDS = 5  # [impl] integrity flag: face out of view this long
+    # Voice emotion (the paper's audio modality): emotion2vec+ on the answer's sound, in the same emotion worker.
+    # The model file is made once with export_voice_model.py (see services/emotion_models.py).
+    VOICE_EMOTION_ENABLED = os.getenv("VOICE_EMOTION_ENABLED", "1") == "1"
+    VOICE_EMOTION_MODEL = os.getenv("VOICE_EMOTION_MODEL", "emotion2vec_plus_base")
+    # [impl] share of the voice in the emotion reading (the rest is the face). Measured on the labelled recording:
+    # face alone 13/16 clips right, voice 10% 12/16, 20% 11/16, 30% 6/16 - voice is a supporting signal only
+    VOICE_EMOTION_WEIGHT = float(os.getenv("VOICE_EMOTION_WEIGHT", "0.1"))
+    VOICE_CHUNK_SECONDS = 15        # [impl] the model's time grows with the square of the length: 15 s 1.6 s, 60 s 13 s
+    VOICE_MAX_SECONDS = 600         # [impl] safety cap per answer
+    VOICE_MIN_SPEECH_SECONDS = 1.0  # [impl] less speech than this -> no voice reading
+    VOICE_SPEECH_RMS = 0.003        # [impl] quietest sound level counted as speech (a quiet laptop microphone ~0.01)
+    VOICE_NOISE_FLOOR_MAX = 0.005   # [impl] background noise is never taken as louder than this (rooms measured 0.001-0.002)
+    VOICE_MAX_UNCLEAR = 0.5         # [impl] model gives more than this to "other/unknown" -> voice reading not used
 
     # Scorecard (paper §3.4): FinalScore = 0.75 NLP + 0.15 Emotion + 0.10 Context  [paper Eq. 1]
     FINAL_SCORE_WEIGHTS = {"nlp": 0.75, "emotion": 0.15, "context": 0.10}
@@ -231,6 +244,8 @@ class TestingConfig(BaseConfig):
     RESUME_QUESTIONS_DEFAULT = 0  # tests that cover resume-based questions switch them on per job
     JD_QUESTIONS_DEFAULT = 0      # likewise for JD-based questions
     EMOTION_ENABLED = True        # the model itself is replaced by a fake in tests (see conftest)
+    VOICE_EMOTION_ENABLED = True  # likewise the voice model
+    VOICE_EMOTION_WEIGHT = 0.1
     EMOTION_MODEL_DOWNLOAD = False  # tests never download; the real-model test uses the files if present
     GEMINI_EMBED_MODEL = "gemini-test-embedding"
     FILE_ENCRYPTION_KEYS = "t1:dGVzdC1rZXktMzItYnl0ZXMtZm9yLWFlcy1nY20hISE="  # fixed 32-byte test key (b'test-key-32-bytes-for-aes-gcm!!!')

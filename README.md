@@ -5,7 +5,7 @@ ranked, evidence-backed scorecards. It implements *"AI-Based Virtual Interviewer
 Emotion Detection"* (Bershika & Nancy, SCIS 2025).
 
 **Stack:** Flask · SQLAlchemy (PostgreSQL in production, SQLite in development) · Alembic migrations ·
-Huey background jobs (Redis in production) · Gemini API (parsing, scoring, embeddings) · HSEmotion (ONNX Runtime) for facial expressions
+Huey background jobs (Redis in production) · Gemini API (parsing, scoring, embeddings) · HSEmotion (ONNX Runtime) for facial expressions, emotion2vec+ (ONNX Runtime) for the voice
 (facial emotion) · Bootstrap 5.
 
 ## Local development (Windows)
@@ -19,6 +19,7 @@ copy .env.example .env          # then fill in SECRET_KEY, GEMINI_API_KEY and FI
 venv\Scripts\flask --app run generate-encryption-key   # paste the output into FILE_ENCRYPTION_KEYS
 venv\Scripts\flask --app run db upgrade
 venv\Scripts\flask --app run download-emotion-models   # facial analysis model files (checked by SHA-256)
+                                                         # + checks the voice model (see "Voice emotion" below)
 venv\Scripts\flask --app run create-admin    # first admin; invite HR users from the Admin panel
 venv\Scripts\flask --app run seed-jobs       # optional: three sample job roles
 ```
@@ -174,7 +175,8 @@ recognised every expression at least sometimes, where DeepFace almost never reco
 disgust. It also needs no TensorFlow: the worker loads in about 2 s and a frame takes about 21 ms. DeepFace remains
 available as the paper baseline: `EMOTION_MODEL=deepface` (install `requirements-deepface.txt`). Per answer HR sees **confidence** (composed expressions: neutral, happy),
 **nervousness** (fear, sadness), **attentiveness** (face visible and turned to the camera), the mix of expressions,
-an emotion score (50% confidence + 50% attentiveness) and a **reliability** label (how stable the readings were).
+an emotion score (a third each: confidence, attentiveness, stability = 100 − nervousness) and a **reliability**
+label (how stable the readings were).
 Answers where the face was visible in too few frames get no emotion score ("not assessed"), never a low one.
 Another face on camera or the face out of view for 5 s are added to the integrity timeline.
 
@@ -182,6 +184,37 @@ Measured on a real interview: YuNet's default threshold (0.9) missed the face in
 0.7 it found 60 of 60 with no false faces. Expression models remain imperfect on real webcams, so only smoothed
 whole-answer averages are used, HR sees the reliability and caveats, and emotion counts for 15% of the final score
 (paper Eq. 1, Phase 9). The test was one person in one room: results will vary across people, lighting and cameras.
+
+## Voice emotion (emotion2vec+)
+
+The emotion worker also reads the emotion in the candidate's **voice** (the paper analyses the audio and video
+streams). The answer's sound is decoded to 16 kHz, pieces of up to 15 s that contain speech are read by
+**emotion2vec+ base** (ONNX Runtime) and averaged by how much speech they contain. The voice reading joins the face's
+expressions with a weight of **10%** (`VOICE_EMOTION_WEIGHT`) and the indicators are recomputed; HR sees the voice's
+main emotion and nervousness per answer and the face-only score next to it. There is no voice reading when the
+transcription found no speech, when there is too little speech, or when the model can't tell an emotion; the
+emotion reading is then the face's alone. A missing voice model never stops the face analysis.
+
+**Setting up the model (once):** emotion2vec+ is published only for PyTorch, so it is converted to ONNX in a separate
+environment (PyTorch is not an app dependency); the script checks the download's SHA-256, checks that the ONNX model
+matches the original, and writes the model plus a checksum file the app verifies before use:
+
+```powershell
+python -m venv export-venv
+export-venv\Scripts\pip install torch --index-url https://download.pytorch.org/whl/cpu
+export-venv\Scripts\pip install funasr huggingface_hub onnx onnxruntime
+export-venv\Scripts\python export_voice_model.py instance/models
+```
+
+Set `VOICE_EMOTION_ENABLED=0` to analyse the face only.
+
+**Why this model and why only 10%:** measured with `voice_test.py` (16 labelled clips of one candidate: each emotion
+acted on two sentences, plus two natural interview answers). Face (HSEmotion) 81% correct; voice: wav2vec2
+(acted-speech model) 38%, emotion2vec+ 25%, Gemini listening to the clip 25%. wav2vec2 scored higher only by calling
+the calm natural answers "sad", which would mark calm candidates as nervous; emotion2vec+ read them as neutral. More
+voice made the combined reading worse (face alone 13/16 clips, with 10% voice 12/16, 20% 11/16, 30% 6/16), so voice
+is a small supporting signal. Natural, quiet speech carries little emotion these models can hear; one person, one
+microphone: Phase 12 should repeat the test with more people.
 
 ## Scorecard (paper §3.4)
 
