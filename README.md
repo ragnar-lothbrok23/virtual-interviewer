@@ -235,6 +235,28 @@ When an interview ends, each candidate gets a scorecard (HR → applicant → **
   automatically whenever an answer is re-scored or re-analysed.
 - An AI recommendation (strong ≥ 75, worth considering ≥ 60) is shown; HR always decides. Integrity flags are shown but
   not scored.
+- The consistency check uses a fixed seed (`CONSISTENCY_SEED`), so checking the same interview again gives the same
+  result; without it one interview scored 4, 8 and 7 out of 10 on three runs. Temperature stays at Gemini 3's default
+  (Google advises against lowering it). A check with no findings reads "No contradictions found".
+
+## HR analytics
+
+HR → **Analytics** shows, for all jobs or one, over the last 30/90/365 days or all time:
+
+- the hiring pipeline (applied → screened → shortlisted → booked → completed → recommended, plus rejected, withdrawn,
+  no-shows) and median days from application to interview;
+- final scores (distribution with the recommendation bands, NLP/emotion/context averages, and how well the resume
+  match predicts the interview score once there are 5+ candidates);
+- jobs side by side, and candidates ranked by final score (choose a job for a like-for-like comparison);
+- per question: average score, first-answer score, follow-up rate, "don't know" rate; questions averaging under 40 or
+  90+ (with 3+ answers) are flagged as possibly too hard/unclear or too easy;
+- weakest required skills (from the JD-based questions), weekly activity, integrity flags, and data-quality problems
+  (failed transcription, scoring, analysis or consistency checks) with links to fix them;
+- **Export CSV** (audited): one row per application with its scores; cells are protected against spreadsheet formula
+  injection.
+
+Figures are for a cohort: the applications made in the period and what happened to them since, so the funnel adds up.
+Nothing is computed by AI on this page; candidates never see it.
 
 ## Roles and accounts
 

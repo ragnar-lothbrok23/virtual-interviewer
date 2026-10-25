@@ -55,7 +55,7 @@ def test_full_interview_gets_a_complete_scorecard(app, room, ai, fake_emotion):
     d = sc.details
     assert sc.status == "complete" and get(app, Interview, room.id).status == "completed"
     assert sc.consistency_status == "done" and sc.consistency["score"] == 9
-    assert d["context_parts"] == {"consistency": 90.0, "adjustability": None, "follow_ups": 0}
+    assert d["context_parts"] == {"consistency": 90.0, "consistency_findings": 0, "adjustability": None, "follow_ups": 0}
     assert sc.context_score == 90.0  # no follow-ups: consistency only
     assert d["weights"] == {"nlp": 0.75, "emotion": 0.15, "context": 0.1}
     assert sc.final_score == pytest.approx(0.75 * sc.nlp_score + 0.15 * sc.emotion_score + 0.10 * sc.context_score,

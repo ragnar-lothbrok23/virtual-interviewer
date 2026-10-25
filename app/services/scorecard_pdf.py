@@ -93,7 +93,8 @@ def build(interview, sc, recommendation_label):
     ind = ei.get("indicators") or {}
     rows = [["Speech", "", "Emotion indicators", "", "Context", ""],
             ["Clarity", _fmt(speech.get("clarity")), "Confidence", _fmt(ind.get("confidence")), "Consistency",
-             _fmt(cp.get("consistency"))],
+             f"No contradictions ({_fmt(cp.get('consistency'))})" if cp.get("consistency_findings") == 0
+             else _fmt(cp.get("consistency"))],
             ["Fluency", _fmt(speech.get("fluency")), "Engagement", _fmt(ind.get("engagement")),
              "Adjustability", _fmt(cp.get("adjustability")) if cp.get("adjustability") is not None else "no follow-ups"],
             ["Pace (wpm)", _fmt(speech.get("words_per_minute")), "Stability", _fmt(ind.get("stability")), "", ""],

@@ -1,0 +1,53 @@
+{# Small server-rendered charts (no JavaScript; CSP-safe). One series each, so no legend: the card title names it.
+   Every mark has a hover tooltip (<title>) on a hit area taller than the bar, and each chart has a table view. #}
+
+{% macro bar_path(x, y, w, h, r=4) -%}
+{# A bar anchored to the baseline with rounded top corners only #}
+{%- set r = [r, w / 2, h]|min -%}
+M{{ x }},{{ y + h }} V{{ y + r }} Q{{ x }},{{ y }} {{ x + r }},{{ y }} H{{ x + w - r }} Q{{ x + w }},{{ y }} {{ x + w }},{{ y + r }} V{{ y + h }} Z
+{%- endmacro %}
+
+{% macro columns(points, label, unit, marks=[], height=150, aria='', edges=false, end_label='') %}
+{# points: [{"label": axis label or '', "tip": tooltip, "value": n}]; marks: [{"at": index position (float), "text": ...}].
+   edges: labels sit on the bin edges (a histogram), with `end_label` after the last bin; otherwise under each bar. #}
+{% set n = points|length %}
+{% set top = [points|map(attribute='value')|max if n else 0, 1]|max %}
+{% set left, right, plot_top, plot_h = 28, 10, 18 + 12 * ([marks|length, 1]|min), height - 44 - 12 * ([marks|length, 1]|min) %}
+{% set width = 420 %}
+{% set step = (width - left - right) / (n if n else 1) %}
+<svg class="viz" viewBox="0 0 {{ width }} {{ height }}" role="img" aria-label="{{ aria or label }}" preserveAspectRatio="xMidYMid meet">
+  <line class="viz-axis" x1="{{ left }}" x2="{{ width - right }}" y1="{{ plot_top + plot_h }}" y2="{{ plot_top + plot_h }}"/>
+  <line class="viz-grid" x1="{{ left }}" x2="{{ width - right }}" y1="{{ plot_top }}" y2="{{ plot_top }}"/>
+  <text class="viz-tick" x="{{ left - 4 }}" y="{{ plot_top + 4 }}" text-anchor="end">{{ top }}</text>
+  <text class="viz-tick" x="{{ left - 4 }}" y="{{ plot_top + plot_h + 4 }}" text-anchor="end">0</text>
+  {% for m in marks %}
+  {% set mx = left + m.at * step %}
+  {% set my = plot_top - 8 - 12 * ((marks|length - 1 - loop.index0) % 2) %}{# staggered so neighbouring labels never overlap #}
+  <line class="viz-mark" x1="{{ mx }}" x2="{{ mx }}" y1="{{ my + 2 }}" y2="{{ plot_top + plot_h }}"/>
+  <text class="viz-mark-label" x="{{ mx + 3 }}" y="{{ my }}">{{ m.text }}</text>
+  {% endfor %}
+  {% for p in points %}
+  {% set x = left + loop.index0 * step %}
+  {% set h = (p.value / top * plot_h) if top else 0 %}
+  <g class="viz-col">
+    <title>{{ p.tip }}: {{ p.value }} {{ unit }}</title>
+    <rect class="viz-hit" x="{{ x }}" y="{{ plot_top - 10 }}" width="{{ step }}" height="{{ plot_h + 10 }}"/>
+    {% if p.value %}
+    <path class="viz-bar" d="{{ bar_path(x + 1, plot_top + plot_h - h, step - 2, h) }}"/>
+    <text class="viz-value" x="{{ x + step / 2 }}" y="{{ plot_top + plot_h - h - 3 }}" text-anchor="middle">{{ p.value }}</text>
+    {% endif %}
+  </g>
+  {% if p.label != '' %}<text class="viz-tick" x="{{ x if edges else x + step / 2 }}" y="{{ plot_top + plot_h + 14 }}" text-anchor="middle">{{ p.label }}</text>{% endif %}
+  {% endfor %}
+  {% if end_label != '' %}<text class="viz-tick" x="{{ left + n * step }}" y="{{ plot_top + plot_h + 14 }}" text-anchor="middle">{{ end_label }}</text>{% endif %}
+</svg>
+<details class="small mt-1"><summary class="text-muted">Show as table</summary>
+  <table class="table table-sm mb-0"><thead><tr><th>{{ label }}</th><th class="text-end">{{ unit|capitalize }}</th></tr></thead>
+  <tbody>{% for p in points %}<tr><td>{{ p.tip }}</td><td class="text-end">{{ p.value }}</td></tr>{% endfor %}</tbody></table>
+</details>
+{% endmacro %}
+
+{% macro hbar(value, max_value=100, tip='') %}
+{# A thin horizontal bar for tables and the funnel #}
+<div class="viz-hbar" title="{{ tip }}"><div class="viz-hbar-fill" style="width: {{ ((value or 0) / (max_value or 1) * 100)|round(1) }}%"></div></div>
+{% endmacro %}

@@ -599,3 +599,48 @@ def rescore_answer(answer_id):
         score_answer(answer.id)
         flash("The answer is being scored again.", "info")
     return redirect(url_for("hr.application", app_id=answer.interview.application_id) + f"#answer-{answer.id}")
+
+
+# ---------- analytics (Phase 10) ----------
+
+def _analytics_filters():
+    """(job or None, period key) from the query string; unknown values fall back to all jobs / all time."""
+    from .services.analytics import PERIODS
+
+    job = None
+    job_id = request.args.get("job", type=int)
+    if job_id is not None:
+        job = db.session.get(Job, job_id)
+        if job is None:
+            abort(404)
+    period = request.args.get("period", "all")
+    return job, period if period in PERIODS else "all"
+
+
+@bp.route("/analytics")
+@hr_only
+def analytics():
+    from .services import analytics as analytics_service
+
+    job, period = _analytics_filters()
+    data = analytics_service.build(job.id if job else None, period, current_app.config["RECOMMENDATION_BANDS"])
+    return render_template("hr/analytics.html", d=data, job=job, period=period,
+                           periods=analytics_service.PERIODS, jobs=analytics_service.job_choices(),
+                           label=scorecard_service.recommendation_label,
+                           min_for_stats=analytics_service.MIN_FOR_STATS)
+
+
+@bp.route("/analytics/export.csv")
+@hr_only
+@limiter.limit("30 per hour")
+def analytics_export():
+    from .services import analytics as analytics_service
+
+    job, period = _analytics_filters()
+    data = analytics_service.export_csv(job.id if job else None, period, scorecard_service.recommendation_label)
+    audit("analytics.exported", job_id=job.id if job else None, period=period, rows=data.count("\n") - 1)
+    db.session.commit()
+    name = secure_filename(f"candidates-{job.title if job else 'all-jobs'}-{period}") or "candidates"
+    # UTF-8 with BOM so Excel shows names with accents correctly
+    return send_file(io.BytesIO(("﻿" + data).encode("utf-8")), mimetype="text/csv", as_attachment=True,
+                     download_name=f"{name}.csv")

@@ -138,13 +138,15 @@ def compute(interview, sc=None):
               "fluency": _mean(a.fluency for a in scored_answers)}
     emotion, emotion_info = emotion_component(interview)
 
-    consistency = None
+    consistency = consistency_findings = None
     consistency_low = False
     if sc is not None and sc.consistency_status == Scorecard.CHECK_DONE and sc.consistency:
         if sc.consistency.get("confidence") == "low":  # too little content to judge: not evidence of consistency
             consistency_low = True
         else:
             consistency = round(sc.consistency["score"] * 10, 1)
+            consistency_findings = (len(sc.consistency.get("contradictions") or [])
+                                    + len(sc.consistency.get("resume_mismatches") or []))
     adjust, follow_ups = adjustability(items)
     cw = cfg["CONTEXT_WEIGHTS"]
     parts = {k: v for k, v in (("consistency", consistency), ("adjustability", adjust)) if v is not None}
@@ -196,7 +198,8 @@ def compute(interview, sc=None):
     return {"status": status, "final": final, "nlp": nlp, "emotion": emotion, "context": context,
             "recommendation": recommendation, "weights": used_weights, "paper_weights": weights,
             "items": items, "speech": speech, "emotion_info": emotion_info,
-            "context_parts": {"consistency": consistency, "adjustability": adjust, "follow_ups": follow_ups},
+            "context_parts": {"consistency": consistency, "consistency_findings": consistency_findings,
+                              "adjustability": adjust, "follow_ups": follow_ups},
             "notes": notes, "waiting": len(waiting)}
 
 

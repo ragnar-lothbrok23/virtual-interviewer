@@ -114,6 +114,7 @@ class BaseConfig:
     # [impl] context = consistency (one AI check per interview) and adjustability during follow-ups (paper §3.4)
     CONTEXT_WEIGHTS = {"consistency": 0.5, "adjustability": 0.5}
     CONSISTENCY_CHECK_ENABLED = os.getenv("CONSISTENCY_CHECK_ENABLED", "1") == "1"
+    CONSISTENCY_SEED = 20261025  # [impl] fixed sampling seed: re-checking the same interview gives the same result
     # [impl] AI recommendation shown to HR (HR always decides): final score at or above each band's minimum
     RECOMMENDATION_BANDS = [(75, "strong", "Strong candidate"), (60, "consider", "Worth considering"),
                             (0, "weak", "Not recommended")]

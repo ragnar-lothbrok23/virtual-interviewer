@@ -1,3 +1,19 @@
 body { background: #f6f8fb; }
 .card { border-radius: .75rem; }
 .navbar-brand { letter-spacing: .2px; }
+
+/* Analytics charts (palette: one series in blue, recessive axes; text keeps text colours) */
+.viz { width: 100%; height: auto; display: block; font-family: inherit; }
+.viz-bar { fill: #2a78d6; }
+.viz-col:hover .viz-bar { fill: #1c5cab; }
+.viz-hit { fill: transparent; }
+.viz-axis { stroke: #b9bec7; stroke-width: 1; }
+.viz-grid { stroke: #e3e6eb; stroke-width: 1; stroke-dasharray: 2 3; }
+.viz-tick { fill: #6c757d; font-size: 10px; }
+.viz-value { fill: #212529; font-size: 10px; font-weight: 600; paint-order: stroke; stroke: #fff; stroke-width: 3px; }
+.viz-mark-label { paint-order: stroke; stroke: #fff; stroke-width: 3px; }
+.viz-mark { stroke: #6c757d; stroke-width: 1; stroke-dasharray: 3 3; }
+.viz-mark-label { fill: #52514e; font-size: 9.5px; }
+.viz-hbar { height: 8px; background: #e9edf3; border-radius: 4px; overflow: hidden; min-width: 60px; }
+.viz-hbar-fill { height: 100%; background: #2a78d6; border-radius: 0 4px 4px 0; }
+.funnel-row + .funnel-row { margin-top: .6rem; }

@@ -159,3 +159,22 @@ def test_missing_api_key(app, real_gemini_functions):
                 real_gemini_functions.embed("x")
         finally:
             app.config["GEMINI_API_KEY"] = key
+
+
+ORIGINAL_CHECK_CONSISTENCY = gemini.check_consistency
+
+
+def test_consistency_check_uses_a_fixed_seed_and_default_temperature(app, real_gemini_functions, monkeypatch):
+    """Re-checking the same interview must give the same result (seed); temperature stays at Gemini 3's default."""
+    monkeypatch.setattr(gemini, "check_consistency", ORIGINAL_CHECK_CONSISTENCY)
+    parsed = SimpleNamespace(model_dump=lambda: {"consistency": 9, "summary": "ok", "contradictions": [],
+                                                  "resume_mismatches": [], "confidence": "high"})
+    with app.app_context():
+        models = use_fake_client(app, gemini, [SimpleNamespace(parsed=parsed)])
+        seen = []
+        original = models.generate_content
+        models.generate_content = lambda **kwargs: seen.append(kwargs["config"]) or original(**kwargs)
+        result = gemini.check_consistency("Engineer", [("Q1", "Q?", "A."), ("Q2", "Q?", "B.")], {})
+        app.extensions.pop("gemini_client")
+    assert result["consistency"] == 9
+    assert seen[0].seed == app.config["CONSISTENCY_SEED"] and seen[0].temperature is None

@@ -157,6 +157,27 @@ right answers unaffected; interviews without follow-ups score exactly as before.
 (verdict, accuracy, notes) and the interview moves straight to the next planned question; at most `MAX_FOLLOW_UPS`
 (3) per interview. HR sees the original and its follow-up together.
 
+## Phase 10 (HR analytics) — implemented 25 Oct 2026 — Category B
+
+The paper's system gives recruiters a recommendation per candidate; it describes no analytics across candidates. Added
+for HR (methodology-compatible: reads stored results, changes no score, makes no AI calls): pipeline funnel, score
+distribution, jobs and candidate comparison, question and skill statistics, integrity and data-quality summaries, CSV
+export (`services/analytics.py`, `/hr/analytics`). Decisions:
+
+| Item | Decision |
+|---|---|
+| Which records a period covers | Cohort by application date (later steps of those applications included), so the funnel adds up |
+| Question flags | Only with 3+ answers: average < 40 "may be too hard or unclear", ≥ 90 "may be too easy" |
+| Resume match vs interview correlation | Pearson r, shown only with 5+ candidates and some variation |
+| Resume-based questions | Personal to each candidate: summarised together per job, not one row each |
+| CSV export | HR only, rate-limited, audited; formula-injection-safe cells; UTF-8 with BOM for Excel |
+| Candidate feedback | **Not included** (user's decision, 25 Oct 2026): candidates see only their status; revisit in Phase 11 |
+
+**Consistency check repeatability (user's decision, 25 Oct 2026):** the user agreed to "temperature 0". Google's
+Gemini 3 guide advises keeping temperature at its default 1.0 (lower values can cause looping or worse reasoning), so a
+fixed seed (`CONSISTENCY_SEED`) is used instead; measured before the change, one interview scored 4, 8 and 7 out of 10
+on three runs. A check with no findings is labelled "No contradictions found".
+
 ## Planned for Phase 12 (evaluation) — agreed 20 Oct 2026
 
 ### Is DeepFace's emotion model good enough, or should a stronger one produce the emotion score?

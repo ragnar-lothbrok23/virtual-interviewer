@@ -103,7 +103,7 @@
     <div class="card shadow-sm h-100"><div class="card-body">
       <h6>Context</h6>
       <dl class="row small mb-1">
-        <dt class="col-7 fw-normal text-muted">Consistency</dt><dd class="col-5 text-end">{{ value(d.context_parts.consistency) }}</dd>
+        <dt class="col-7 fw-normal text-muted">Consistency</dt><dd class="col-5 text-end">{% if d.context_parts.consistency_findings == 0 %}<span class="text-success">No contradictions found</span> ({{ value(d.context_parts.consistency) }}){% else %}{{ value(d.context_parts.consistency) }}{% endif %}</dd>
         <dt class="col-7 fw-normal text-muted">Adjustability in follow-ups</dt><dd class="col-5 text-end">{% if d.context_parts.adjustability is none %}<span class="text-muted">no follow-ups</span>{% else %}{{ value(d.context_parts.adjustability) }}{% endif %}</dd>
       </dl>
       <div class="small text-muted">Adjustability: 50 = the follow-up answer was at the same level as the original, higher = it improved.</div>

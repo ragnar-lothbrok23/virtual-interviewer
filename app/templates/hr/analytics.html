@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge %}
+{% from "hr/_charts.html" import columns, hbar %}
+{% block title %}Analytics · Virtual Interviewer{% endblock %}
+{% macro num(v, digits=1) -%}{% if v is none %}<span class="text-muted">—</span>{% else %}{{ ('%.' ~ digits ~ 'f')|format(v) }}{% endif %}{%- endmacro %}
+{% macro rec_badge(key) -%}
+{% if key %}<span class="badge text-bg-{{ {'strong': 'success', 'consider': 'warning', 'weak': 'secondary'}[key] }}">{{ label(key) }}</span>{% endif %}
+{%- endmacro %}
+{% macro question_row(q) %}
+<tr><td class="small">{{ q.question }}
+    {% if q.source %}<div class="text-muted">{{ q.source }}</div>{% endif %}
+    {% if q.flag == 'hard' %}<span class="badge text-bg-warning">May be too hard or unclear</span>{% elif q.flag == 'easy' %}<span class="badge text-bg-light border">May be too easy</span>{% endif %}</td>
+  <td class="text-end">{{ q.asked }}{% if q.asked < min_for_stats %}<i class="bi bi-info-circle text-muted ms-1" title="Few answers so far: treat the average with caution"></i>{% endif %}</td>
+  <td class="text-end fw-semibold">{{ num(q.average) }}</td><td class="text-end">{{ num(q.original_average) }}</td>
+  <td class="text-end">{{ q.follow_up_rate }}%{% if q.recovered %} <span class="text-muted small" title="Follow-up answers that improved the score">({{ q.recovered }} improved)</span>{% endif %}</td>
+  <td class="text-end">{{ q.dont_know_rate if q.dont_know_rate is not none else '—' }}{% if q.dont_know_rate is not none %}%{% endif %}</td>
+  <td class="text-end">{{ q.unanswered }}</td></tr>
+{% endmacro %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+  <div>
+    <h3 class="mb-1">Analytics</h3>
+    <p class="text-muted mb-0 small">Applications made in the period{% if job %} for <strong>{{ job.title }}</strong>{% endif %}, and what happened to them since.</p>
+  </div>
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-center" aria-label="Filters">
+    <select name="job" class="form-select form-select-sm w-auto" aria-label="Job">
+      <option value="">All jobs</option>
+      {% for j in jobs %}<option value="{{ j.id }}" {{ 'selected' if job and job.id == j.id }}>{{ j.title }}</option>{% endfor %}
+    </select>
+    <select name="period" class="form-select form-select-sm w-auto" aria-label="Period">
+      {% for key, (text, _) in periods.items() %}<option value="{{ key }}" {{ 'selected' if key == period }}>{{ text }}</option>{% endfor %}
+    </select>
+    <button class="btn btn-sm btn-primary">Apply</button>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('hr.analytics_export', job=job.id if job else None, period=period) }}"><i class="bi bi-download me-1"></i>Export CSV</a>
+  </form>
+</div>
+
+{% if not d.applications %}
+<div class="card shadow-sm"><div class="card-body text-muted">No applications in this period{% if job %} for this job{% endif %}.</div></div>
+{% else %}
+{% set s = d.scores %}
+<div class="row g-3 mb-3">
+  {% for text, value, sub in [
+      ('Applications', d.applications, None),
+      ('Interviews scored', s.count, ('%d provisional'|format(s.provisional)) if s.provisional else None),
+      ('Average final score', s.mean, ('median %.1f'|format(s.median)) if s.median is not none else None),
+      ('Recommended', d.funnel.stages[-1].count, 'strong or worth considering'),
+      ('Days to interview', d.timing.days_to_interview, 'median, application → interview')] %}
+  <div class="col-6 col-lg">
+    <div class="card shadow-sm h-100"><div class="card-body py-2">
+      <div class="text-muted small">{{ text }}</div>
+      <div class="fs-4 fw-bold">{{ num(value, 1) if value is float else (value if value is not none else '—') }}</div>
+      {% if sub %}<div class="small text-muted">{{ sub }}</div>{% endif %}
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <h6>Hiring pipeline</h6>
+      {% set applied = d.funnel.stages[0].count %}
+      {% for st in d.funnel.stages %}
+      <div class="funnel-row">
+        <div class="d-flex justify-content-between small"><span>{{ st.label }}</span><span class="fw-semibold">{{ st.count }}{% if loop.index0 %} <span class="text-muted fw-normal">({{ st.pct }}%)</span>{% endif %}</span></div>
+        {{ hbar(st.count, applied, st.label ~ ': ' ~ st.count ~ ' of ' ~ applied) }}
+      </div>
+      {% endfor %}
+      {% set side = d.funnel.side %}
+      <div class="small text-muted mt-3">
+        {% for key, text in [('upcoming', 'interview upcoming'), ('rejected', 'rejected'), ('withdrawn', 'withdrawn'), ('no_show', 'no-show'), ('cancelled', 'interview cancelled'), ('screening_failed', 'resume screening failed')] %}{% if side[key] %}<span class="me-3">{{ side[key] }} {{ text }}</span>{% endif %}{% endfor %}
+      </div>
+    </div></div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <h6>Final interview scores</h6>
+      {% if s.count %}
+      {% set points = [] %}
+      {% for b in s.histogram %}{% set _ = points.append({'label': b['from']|string if loop.index0 % 2 == 0 else '', 'tip': '%d–%d'|format(b['from'], b['to']), 'value': b['count']}) %}{% endfor %}
+      {% set marks = [] %}
+      {% for b in s.bands if b['min'] > 0 %}{% set _ = marks.append({'at': b['min'] / 10, 'text': {'strong': 'Strong', 'consider': 'Consider'}.get(b['key'], b['label']) ~ ' ≥ ' ~ b['min']}) %}{% endfor %}
+      {{ columns(points, 'Final score', 'candidates', marks|sort(attribute='at'), aria='Histogram of final interview scores', edges=true, end_label='100') }}
+      <div class="d-flex flex-wrap gap-2 mt-2 small">
+        {% for b in s.bands %}<span>{{ rec_badge(b.key) }} {{ b.count }}</span>{% endfor %}
+      </div>
+      <dl class="row small mb-0 mt-2">
+        <dt class="col-8 fw-normal text-muted">Average NLP (answer content, 75%)</dt><dd class="col-4 text-end mb-1">{{ num(s.components.nlp) }}</dd>
+        <dt class="col-8 fw-normal text-muted">Average emotion (15%, indicative)</dt><dd class="col-4 text-end mb-1">{{ num(s.components.emotion) }}</dd>
+        <dt class="col-8 fw-normal text-muted">Average context (10%)</dt><dd class="col-4 text-end mb-1">{{ num(s.components.context) }}</dd>
+        <dt class="col-8 fw-normal text-muted">Resume match vs interview score</dt>
+        <dd class="col-4 text-end mb-0">{% if s.resume_vs_interview.r is none %}<span class="text-muted" title="Needs at least 5 interviewed candidates with a resume match">not enough data</span>{% else %}<span title="Pearson correlation over {{ s.resume_vs_interview.n }} candidates: near 1 = the resume screen predicts the interview well, near 0 = it doesn't">r = {{ '%.2f'|format(s.resume_vs_interview.r) }}</span>{% endif %}</dd>
+      </dl>
+      {% else %}
+      <div class="text-muted small">No scored interviews yet.</div>
+      {% endif %}
+    </div></div>
+  </div>
+</div>
+
+{% if d.jobs %}
+<div class="card shadow-sm mb-3"><div class="card-body">
+  <h6>By job</h6>
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Job</th><th class="text-end">Applicants</th><th class="text-end">Interviewed</th><th class="text-end">Avg final</th><th class="text-end">NLP</th><th class="text-end">Emotion</th><th class="text-end">Context</th><th class="text-end">Recommended</th><th></th></tr></thead>
+    <tbody>
+    {% for r in d.jobs %}
+      <tr><td>{{ r.job.title }}</td><td class="text-end">{{ r.applicants }}</td><td class="text-end">{{ r.interviewed }}</td>
+        <td class="text-end fw-semibold">{{ num(r.final) }}</td><td class="text-end">{{ num(r.nlp) }}</td><td class="text-end">{{ num(r.emotion) }}</td><td class="text-end">{{ num(r.context) }}</td>
+        <td class="text-end">{{ r.recommended }}</td>
+        <td class="text-end"><a class="small" href="{{ url_for('hr.analytics', job=r.job.id, period=period) }}">Details</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div></div>
+{% endif %}
+
+<div class="card shadow-sm mb-3"><div class="card-body">
+  <h6>Candidates by final score</h6>
+  {% if not job and d.ranking|map(attribute='application.job_id')|unique|list|length > 1 %}
+  <div class="small text-muted mb-2">Different jobs ask different questions: choose a job above for a like-for-like comparison.</div>
+  {% endif %}
+  {% if d.ranking %}
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>#</th><th>Candidate</th>{% if not job %}<th>Job</th>{% endif %}<th class="text-end">Final</th><th class="text-end">NLP</th><th class="text-end">Emotion</th><th class="text-end">Context</th><th class="text-end">Resume match</th><th>AI recommendation</th><th>Status</th><th class="text-end" title="Integrity flags during the interview">Flags</th><th></th></tr></thead>
+    <tbody>
+    {% for r in d.ranking %}
+      {% set a, sc = r.application, r.scorecard %}
+      <tr><td class="text-muted">{{ loop.index }}</td>
+        <td><a href="{{ url_for('hr.application', app_id=a.id) }}">{{ a.candidate.name }}</a></td>
+        {% if not job %}<td class="small">{{ a.job.title }}</td>{% endif %}
+        <td class="text-end fw-semibold">{{ num(sc.final_score) }}{% if sc.status != 'complete' %} <span class="badge text-bg-light border" title="Some results are still missing">provisional</span>{% endif %}</td>
+        <td class="text-end">{{ num(sc.nlp_score) }}</td><td class="text-end">{{ num(sc.emotion_score) }}</td><td class="text-end">{{ num(sc.context_score) }}</td>
+        <td class="text-end">{{ num(a.match_score) }}</td>
+        <td>{{ rec_badge(sc.recommendation) }}</td><td>{{ status_badge(a) }}</td>
+        <td class="text-end">{% if r.flags %}<span class="text-warning-emphasis">{{ r.flags }}</span>{% else %}0{% endif %}</td>
+        <td class="text-end"><a class="small" href="{{ url_for('hr.scorecard', interview_id=r.interview.id) }}">Scorecard</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="text-muted small">No scored interviews yet.</div>{% endif %}
+</div></div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-8">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <h6>Questions</h6>
+      <div class="small text-muted mb-2">Score per question (a follow-up's improvement included, as on the scorecard). Flags appear once at least {{ min_for_stats }} candidates answered: below 40 the question may be too hard or unclear, 90 or more it may not tell candidates apart.</div>
+      {% if d.questions %}
+      {# One job: the table. All jobs: one collapsible table per job, opened when it has a flagged question #}
+      {% for job_title, rows in d.questions|groupby('job.title') %}
+      {% set flagged = rows|selectattr('flag')|list|length %}
+      {% if not job %}<details class="mb-2" {{ 'open' if flagged }}><summary class="small fw-semibold">{{ job_title }} <span class="text-muted fw-normal">· {{ rows|length }} question{{ 's' if rows|length != 1 }}{% if flagged %} · {{ flagged }} flagged{% endif %}</span></summary>{% endif %}
+      <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Question</th><th class="text-end">Asked</th><th class="text-end">Avg score</th><th class="text-end" title="Average of the first answers, before any follow-up">First answer</th><th class="text-end">Follow-up</th><th class="text-end" title="Share of first answers judged 'don't know' or off topic">Don't know</th><th class="text-end">Not answered</th></tr></thead>
+        <tbody>
+        {% for q in rows|sort(attribute='average') if q.average is not none %}{{ question_row(q) }}{% endfor %}
+        {% for q in rows if q.average is none %}{{ question_row(q) }}{% endfor %}
+        </tbody>
+      </table></div>
+      {% if not job %}</details>{% endif %}
+      {% endfor %}
+      {% else %}<div class="text-muted small">No scored interviews yet.</div>{% endif %}
+    </div></div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <h6>Skills (weakest first)</h6>
+      <div class="small text-muted mb-2">Average score on the technical questions generated from the job description, per required skill.</div>
+      {% for sk in d.skills %}
+      <div class="mb-2">
+        <div class="d-flex justify-content-between small"><span>{{ sk.skill }}</span><span><span class="fw-semibold">{{ num(sk.average) }}</span> <span class="text-muted">· {{ sk.answers }} answer{{ 's' if sk.answers != 1 }}</span></span></div>
+        {{ hbar(sk.average, 100, sk.skill ~ ': average ' ~ sk.average ~ ' over ' ~ sk.answers ~ ' answer(s)') }}
+      </div>
+      {% else %}<div class="text-muted small">No JD-based technical questions answered yet.</div>{% endfor %}
+    </div></div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <h6>Applications per week</h6>
+      {% set points = [] %}
+      {% for w in d.weekly %}{% set _ = points.append({'label': w.week.strftime('%d %b') if loop.index0 % 3 == 0 else '', 'tip': 'Week of ' ~ w.week.strftime('%d %b %Y'), 'value': w.applications}) %}{% endfor %}
+      {{ columns(points, 'Week', 'applications', height=130, aria='Applications per week, last 12 weeks') }}
+    </div></div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <h6>Interviews completed per week</h6>
+      {% set points = [] %}
+      {% for w in d.weekly %}{% set _ = points.append({'label': w.week.strftime('%d %b') if loop.index0 % 3 == 0 else '', 'tip': 'Week of ' ~ w.week.strftime('%d %b %Y'), 'value': w.interviews}) %}{% endfor %}
+      {{ columns(points, 'Week', 'interviews', height=130, aria='Interviews completed per week, last 12 weeks') }}
+      <div class="small text-muted mt-1">Median interview length: {{ num(d.timing.interview_minutes) }} min.</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <h6>Integrity flags</h6>
+      {% set ig = d.integrity %}
+      <div class="small mb-2">{{ ig.flagged_interviews }} of {{ ig.interviews }} interview{{ 's' if ig.interviews != 1 }} had at least one flag.</div>
+      {% if ig.kinds %}
+      <table class="table table-sm mb-1"><tbody>
+        {% for k in ig.kinds %}<tr><td class="small">{{ k.label }}</td><td class="text-end">{{ k.count }}</td></tr>{% endfor %}
+      </tbody></table>
+      {% endif %}
+      <div class="small text-muted">Flags are prompts to review the recording, not proof of misconduct: a lost window focus can be a notification, another face can be a family member passing by.</div>
+    </div></div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <h6>Data quality</h6>
+      {% set h = d.health %}
+      {% if not h.problems and not h.screening_failed %}
+      <div class="small text-success mb-2"><i class="bi bi-check-circle me-1"></i>No processing problems: every answer was transcribed, scored and analysed.</div>
+      {% endif %}
+      {% for p in h.problems %}
+      <div class="small mb-2"><i class="bi bi-exclamation-triangle text-warning me-1"></i>{{ p.label }}: {{ p.interviews|length }}
+        <div class="ms-3">{% for iv in p.interviews[:10] %}<a class="me-2" href="{{ url_for('hr.application', app_id=iv.application_id) }}">{{ iv.application.candidate.name }} ({{ iv.application.job.title }})</a>{% endfor %}{% if p.interviews|length > 10 %}<span class="text-muted">and {{ p.interviews|length - 10 }} more</span>{% endif %}</div></div>
+      {% endfor %}
+      {% if h.screening_failed %}
+      <div class="small mb-2"><i class="bi bi-exclamation-triangle text-warning me-1"></i>Resume screening failed: {{ h.screening_failed|length }}
+        <div class="ms-3">{% for a in h.screening_failed[:10] %}<a class="me-2" href="{{ url_for('hr.application', app_id=a.id) }}">{{ a.candidate.name }} ({{ a.job.title }})</a>{% endfor %}</div></div>
+      {% endif %}
+      <div class="small text-muted">Of {{ h.answers }} recorded answer{{ 's' if h.answers != 1 }}: {{ h.emotion_insufficient }} without a visible face (no emotion score), {{ h.emotion_low_reliability }} with low-reliability expression readings (left out of the emotion score).</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="small text-muted mb-4">
+  Scores are AI assessments to support HR decisions, never to replace them. The final score follows the paper (75% NLP, 15% emotion, 10% context). Emotion readings depend on lighting, camera and individual differences and are indicative only. Small numbers of candidates make averages and correlations unreliable.
+</div>
+{% endif %}
+{% endblock %}
